@@ -28,6 +28,7 @@ Verification evidence for the repository-structure migration, focused on semanti
 |---|---|
 | `python -c "import tensor_crypt; import tensor_crypt.app.runtime; import engine.physics; import viewer.main; print('IMPORT_OK')"` | Passed (`IMPORT_OK`) |
 | `python -c "from tensor_crypt.config_bridge import cfg; import config; print(cfg is config.cfg)"` | Passed (`True`) |
+| `python -c "sys.path->src only; import tensor_crypt.config_bridge; print('FALLBACK_CFG_OK')"` | Passed (`FALLBACK_CFG_OK 42`) |
 | `pytest -q tests/test_imports_and_compat.py` | Passed (`2 passed`) |
 
 ### B. Entrypoint Validation
@@ -51,6 +52,7 @@ Direct `python run.py` / `python main.py` do not self-terminate due interactive 
 |---|---|
 | `pytest -q` | Passed (`88 passed in 25.11s`) |
 | `pytest -q` (final rerun after docs/finalization commits) | Passed (`88 passed in 20.78s`) |
+| `pytest -q` (post config-bridge fallback hardening) | Passed (`88 passed in 18.69s`) |
 
 The full suite includes coverage for:
 - checkpoint save/load/manifest/checksum (`test_runtime_checkpoint_substrate.py`, `test_prompt7_checkpoint_atomicity.py`, prompt4/prompt5 checkpoint cases)

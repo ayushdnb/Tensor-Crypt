@@ -35,7 +35,14 @@ def _load_root_config_module() -> ModuleType:
 
         return root_config
     except ModuleNotFoundError:
-        config_path = Path(__file__).resolve().parents[1] / "config.py"
+        config_path = None
+        for parent in Path(__file__).resolve().parents:
+            candidate = parent / "config.py"
+            if candidate.is_file():
+                config_path = candidate
+                break
+        if config_path is None:
+            raise RuntimeError("Unable to locate root config.py for config bridge loading")
         spec = spec_from_file_location("config", config_path)
         if spec is None or spec.loader is None:
             raise RuntimeError(f"Unable to load root config module from {config_path}")
