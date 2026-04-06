@@ -1,0 +1,8 @@
+# Runtime dependencies for Tensor Crypt.
+# If you need a CUDA-specific PyTorch build, install the appropriate wheel first.
+h5py
+numpy
+pandas
+pyarrow
+pygame
+torch
