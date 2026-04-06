@@ -37,13 +37,14 @@ class Viewer:
         self.speed_multiplier = 1.0
         self.frame_count = 0
 
-        self.show_rays = False
+        overlay_defaults = dict(cfg.VIEW.SHOW_OVERLAYS)
+        self.show_rays = bool(overlay_defaults.get("rays", False))
         self.show_hp_bars = True
-        self.show_hzones = True
+        self.show_hzones = bool(overlay_defaults.get("h_rate", True))
         self.show_grid = True
 
         self.show_catastrophe_panel = cfg.VIEW.SHOW_CATASTROPHE_PANEL
-        self.show_catastrophe_overlay = cfg.VIEW.SHOW_CATASTROPHE_OVERLAY
+        self.show_catastrophe_overlay = bool(cfg.VIEW.SHOW_CATASTROPHE_OVERLAY and cfg.CATASTROPHE.VIEWER_OVERLAY_ENABLED)
 
         self.selected_slot_id = None
         self.selected_hzone_id = None
@@ -92,6 +93,9 @@ class Viewer:
                 num_ticks_this_frame = 1
 
             for _ in range(num_ticks_this_frame):
+                if cfg.SIM.MAX_TICKS > 0 and self.engine.tick >= int(cfg.SIM.MAX_TICKS):
+                    running = False
+                    break
                 self.engine.step()
 
             state_data = self._prepare_state_data()

@@ -36,6 +36,9 @@ def build_run_metadata() -> dict:
             "capture_rng_state": cfg.CHECKPOINT.CAPTURE_RNG_STATE,
             "capture_optimizer_state": cfg.CHECKPOINT.CAPTURE_OPTIMIZER_STATE,
             "capture_scaler_state": cfg.CHECKPOINT.CAPTURE_SCALER_STATE,
+            "save_every_ticks": cfg.CHECKPOINT.SAVE_EVERY_TICKS,
+            "keep_last": cfg.CHECKPOINT.KEEP_LAST,
+            "directory_name": cfg.CHECKPOINT.DIRECTORY_NAME,
         },
         "migration": {
             "log_legacy_slot_fields": cfg.MIGRATION.LOG_LEGACY_SLOT_FIELDS,
@@ -65,6 +68,11 @@ def build_run_metadata() -> dict:
             "max_concurrent": cfg.CATASTROPHE.MAX_CONCURRENT,
             "manual_trigger_enabled": cfg.CATASTROPHE.MANUAL_TRIGGER_ENABLED,
             "manual_clear_enabled": cfg.CATASTROPHE.MANUAL_CLEAR_ENABLED,
+        },
+        "telemetry": {
+            "summary_export_cadence_ticks": cfg.TELEMETRY.SUMMARY_EXPORT_CADENCE_TICKS,
+            "parquet_batch_rows": cfg.TELEMETRY.PARQUET_BATCH_ROWS,
+            "lineage_export_format": cfg.TELEMETRY.LINEAGE_EXPORT_FORMAT,
         },
         "viewer": {
             "show_bloodline_legend": cfg.VIEW.SHOW_BLOODLINE_LEGEND,

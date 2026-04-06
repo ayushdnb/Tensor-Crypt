@@ -4,7 +4,9 @@ from .atomic_checkpoint import (
     atomic_save_checkpoint_files,
     latest_pointer_path_for,
     load_checkpoint_bundle,
+    load_latest_checkpoint_pointer,
     manifest_path_for,
+    resolve_latest_checkpoint_bundle,
     validate_checkpoint_file_set,
 )
 from .runtime_checkpoint import (
@@ -21,8 +23,10 @@ __all__ = [
     "capture_runtime_checkpoint",
     "latest_pointer_path_for",
     "load_checkpoint_bundle",
+    "load_latest_checkpoint_pointer",
     "load_runtime_checkpoint",
     "manifest_path_for",
+    "resolve_latest_checkpoint_bundle",
     "restore_runtime_checkpoint",
     "save_runtime_checkpoint",
     "validate_checkpoint_artifacts",

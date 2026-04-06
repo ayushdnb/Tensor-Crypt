@@ -125,14 +125,19 @@ class Physics:
         if len(alive_indices) == 0:
             return stats
 
+        alive_list = [int(idx) for idx in alive_indices.tolist()]
+        action_values = [int(value) for value in actions[alive_indices].tolist()]
+        x_values = [int(value) for value in self.registry.data[self.registry.X, alive_indices].tolist()]
+        y_values = [int(value) for value in self.registry.data[self.registry.Y, alive_indices].tolist()]
+        mass_by_idx = {
+            idx: float(value)
+            for idx, value in zip(alive_list, self.registry.data[self.registry.MASS, alive_indices].tolist())
+        }
+
         intents = []
         intent_by_idx = {}
         start_occupancy = {}
-        for idx in alive_indices:
-            idx_int = int(idx.item())
-            action = int(actions[idx_int].item())
-            x = int(self.registry.data[self.registry.X, idx_int].item())
-            y = int(self.registry.data[self.registry.Y, idx_int].item())
+        for idx_int, action, x, y in zip(alive_list, action_values, x_values, y_values):
             dx, dy = self.DIRECTIONS[action]
             tx, ty = x + dx, y + dy
             tx = max(0, min(tx, self.grid.W - 1))
@@ -220,9 +225,8 @@ class Physics:
                 non_movers.add(idx)
 
         for idx in successful_moves:
-            old_x = int(self.registry.data[self.registry.X, idx].item())
-            old_y = int(self.registry.data[self.registry.Y, idx].item())
-            self.grid.clear_cell(old_x, old_y)
+            intent = intent_by_idx[idx]
+            self.grid.clear_cell(intent["x"], intent["y"])
 
         for idx in successful_moves:
             tx, ty = proposed_moves[idx]
@@ -231,8 +235,7 @@ class Physics:
 
         for idx in successful_moves:
             tx, ty = proposed_moves[idx]
-            mass = self.registry.data[self.registry.MASS, idx].item()
-            self.grid.set_cell(tx, ty, idx, mass)
+            self.grid.set_cell(tx, ty, idx, mass_by_idx[idx])
 
         return stats
 
@@ -304,6 +307,7 @@ class Physics:
         )
 
     def _resolve_contest(self, contenders: list[int]) -> int:
+        """Resolve a contested cell deterministically, including deterministic seeded tie breaks."""
         strengths = []
         for idx in contenders:
             mass = self.registry.data[self.registry.MASS, idx]
@@ -311,10 +315,23 @@ class Physics:
             hp_max = self.registry.data[self.registry.HP_MAX, idx]
             hp_ratio = hp / (hp_max + 1e-6)
             strength = mass * hp_ratio
-            strengths.append((strength.item(), idx))
+            strengths.append((float(strength.item()), idx))
 
         strengths.sort(key=lambda value: (-value[0], value[1]))
-        winner = strengths[0][1]
+        top_strength = strengths[0][0]
+        tied = [idx for strength, idx in strengths if abs(strength - top_strength) <= 1e-9]
+        tie_breaker = str(cfg.PHYS.TIE_BREAKER)
+        if tie_breaker == "strength_then_lowest_id":
+            winner = min(tied)
+        elif tie_breaker == "random_seeded":
+            ordered = sorted(tied)
+            accumulator = int(cfg.SIM.SEED) + int(self.registry.tick_counter) * 2654435761
+            for idx in ordered:
+                accumulator += (idx + 1) * 2246822519
+            winner = ordered[accumulator % len(ordered)]
+        else:
+            raise ValueError(f"Unsupported contest tie breaker: {cfg.PHYS.TIE_BREAKER}")
+
         scalar = self._damage_scalar()
 
         for _, idx in strengths:
@@ -353,61 +370,76 @@ class Physics:
         self.grid.set_cell(tx, ty, idx, mass)
 
     def apply_environment_effects(self):
+        """Apply heal/harm zones and metabolism in bulk before per-death context annotation."""
         alive_indices = self.registry.get_alive_indices()
-        for idx in alive_indices:
-            idx_int = int(idx.item())
-            x = int(self.registry.data[self.registry.X, idx_int].item())
-            y = int(self.registry.data[self.registry.Y, idx_int].item())
+        if len(alive_indices) == 0:
+            return
 
-            h_rate = self.grid.get_h_rate(x, y)
-            self.registry.data[self.registry.HP, idx_int] += h_rate
-            if h_rate > 0:
-                self.registry.data[self.registry.HP_GAINED, idx_int] += h_rate
-            elif h_rate < 0:
+        x_coords = self.registry.data[self.registry.X, alive_indices].long().clamp(0, self.grid.W - 1)
+        y_coords = self.registry.data[self.registry.Y, alive_indices].long().clamp(0, self.grid.H - 1)
+        h_rates = self.grid.grid[1, y_coords, x_coords]
+
+        self.registry.data[self.registry.HP, alive_indices] += h_rates
+        positive_h_mask = h_rates > 0.0
+        if positive_h_mask.any():
+            self.registry.data[self.registry.HP_GAINED, alive_indices[positive_h_mask]] += h_rates[positive_h_mask]
+
+        negative_h_mask = h_rates < 0.0
+        if negative_h_mask.any():
+            for slot_idx, x, y in zip(
+                alive_indices[negative_h_mask].tolist(),
+                x_coords[negative_h_mask].tolist(),
+                y_coords[negative_h_mask].tolist(),
+            ):
                 self._record_death_context(
-                    idx_int,
+                    int(slot_idx),
                     death_reason="poison_zone",
                     catastrophe_id=self._active_catastrophe_id(),
-                    zone_id=self.grid.find_hzone_at(x, y),
+                    zone_id=self.grid.find_hzone_at(int(x), int(y)),
                 )
 
-            metab = self.registry.data[self.registry.METABOLISM_RATE, idx_int]
-            mass = self.registry.data[self.registry.MASS, idx_int]
-            effective_metab = (metab * self.metabolism_multiplier) + (mass * self.mass_metabolism_burden)
-            self.registry.data[self.registry.HP, idx_int] -= effective_metab
-            if float(effective_metab.item()) > 0.0:
+        metab = self.registry.data[self.registry.METABOLISM_RATE, alive_indices]
+        mass = self.registry.data[self.registry.MASS, alive_indices]
+        effective_metab = (metab * self.metabolism_multiplier) + (mass * self.mass_metabolism_burden)
+        self.registry.data[self.registry.HP, alive_indices] -= effective_metab
+
+        positive_metab_mask = effective_metab > 0.0
+        if positive_metab_mask.any():
+            for slot_idx in alive_indices[positive_metab_mask].tolist():
                 self._record_death_context(
-                    idx_int,
+                    int(slot_idx),
                     death_reason="metabolism_death",
                     catastrophe_id=self._active_catastrophe_id(),
                 )
 
     def process_deaths(self):
+        """Clamp HP into the legal range and retire any slots that have crossed the death boundary."""
         alive_indices = self.registry.get_alive_indices()
-        deaths = []
+        if len(alive_indices) == 0:
+            return []
 
-        for idx in alive_indices:
-            idx_int = int(idx.item())
-            hp = self.registry.data[self.registry.HP, idx_int]
-            hp_max = self.registry.data[self.registry.HP_MAX, idx_int]
-            hp_clamped = torch.clamp(hp, 0.0, hp_max)
-            self.registry.data[self.registry.HP, idx_int] = hp_clamped
-            if hp_clamped <= 0.0:
-                context = dict(self._pending_death_context_by_slot.get(idx_int, {}))
-                if not context:
-                    context = {
-                        "death_reason": "catastrophe" if self._active_catastrophe_id() is not None else "unknown",
-                        "catastrophe_id": self._active_catastrophe_id(),
-                        "zone_id": None,
-                        "killing_agent_uid": None,
-                    }
-                context.setdefault("death_reason", "unknown")
-                context.setdefault("catastrophe_id", self._active_catastrophe_id())
-                context.setdefault("zone_id", None)
-                context.setdefault("killing_agent_uid", None)
-                self._resolved_death_context_by_slot[idx_int] = context
-                self.registry.mark_dead(idx_int, self.grid)
-                deaths.append(idx_int)
+        hp = self.registry.data[self.registry.HP, alive_indices]
+        hp_max = self.registry.data[self.registry.HP_MAX, alive_indices]
+        hp_clamped = torch.minimum(torch.clamp_min(hp, 0.0), hp_max)
+        self.registry.data[self.registry.HP, alive_indices] = hp_clamped
+
+        deaths: list[int] = []
+        for idx_int in [int(idx) for idx in alive_indices[hp_clamped <= 0.0].tolist()]:
+            context = dict(self._pending_death_context_by_slot.get(idx_int, {}))
+            if not context:
+                context = {
+                    "death_reason": "catastrophe" if self._active_catastrophe_id() is not None else "unknown",
+                    "catastrophe_id": self._active_catastrophe_id(),
+                    "zone_id": None,
+                    "killing_agent_uid": None,
+                }
+            context.setdefault("death_reason", "unknown")
+            context.setdefault("catastrophe_id", self._active_catastrophe_id())
+            context.setdefault("zone_id", None)
+            context.setdefault("killing_agent_uid", None)
+            self._resolved_death_context_by_slot[idx_int] = context
+            self.registry.mark_dead(idx_int, self.grid)
+            deaths.append(idx_int)
 
         return deaths
 

@@ -100,7 +100,7 @@ class _AgentBuffer:
         self.bootstrap_done: torch.Tensor | None = None
         self.finalization_kind: str = "none"
 
-    def validate(self) -> None:
+    def validate_structure(self) -> None:
         size = len(self.observations)
         if not all(
             len(values) == size
@@ -116,6 +116,7 @@ class _AgentBuffer:
         if self.bootstrap_obs is None and self.bootstrap_done is not None and float(self.bootstrap_done.item()) < 0.5:
             raise ValueError("Active bootstrap buffer state is missing bootstrap observation payload")
 
+    def validate_finite(self) -> None:
         for obs_idx, obs in enumerate(self.observations):
             for key, value in obs.items():
                 if not torch.isfinite(value).all():
@@ -137,6 +138,10 @@ class _AgentBuffer:
                     raise ValueError(f"UID-owned PPO buffer contains non-finite bootstrap observation tensor '{key}'")
         if self.bootstrap_done is not None and not torch.isfinite(self.bootstrap_done).all():
             raise ValueError("UID-owned PPO buffer contains non-finite bootstrap_done state")
+
+    def validate(self) -> None:
+        self.validate_structure()
+        self.validate_finite()
 
     def store_transition(
         self,
@@ -161,7 +166,13 @@ class _AgentBuffer:
         self.bootstrap_obs = obs
         self.bootstrap_done = done.detach().clone()
         self.finalization_kind = finalization_kind
-        self.validate()
+        self.validate_structure()
+        if self.bootstrap_obs is not None:
+            for key, value in self.bootstrap_obs.items():
+                if not torch.isfinite(value).all():
+                    raise ValueError(f"UID-owned PPO buffer contains non-finite bootstrap observation tensor '{key}'")
+        if not torch.isfinite(self.bootstrap_done).all():
+            raise ValueError("UID-owned PPO buffer contains non-finite bootstrap_done state")
 
     def has_terminal_tail(self) -> bool:
         if not self.dones:
@@ -486,7 +497,7 @@ class PPO:
                 )
             if buffer.bootstrap_obs is None:
                 raise ValueError(f"UID {uid} has non-terminal bootstrap state without bootstrap observation payload")
-            with torch.no_grad():
+            with torch.inference_mode():
                 bootstrap_batch = {key: value.unsqueeze(0) for key, value in buffer.bootstrap_obs.items()}
                 _, bootstrap_value = brain(bootstrap_batch)
             return bootstrap_value.reshape(()), bootstrap_done
@@ -678,6 +689,7 @@ class PPO:
             training_state.last_update_tick = int(-1 if tick is None else tick)
 
             buffer.clear()
+            brain.eval()
             stats_list.append(
                 {
                     "agent_uid": uid,

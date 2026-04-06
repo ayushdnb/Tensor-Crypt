@@ -141,3 +141,27 @@ def test_contested_move_into_occupied_cell_does_not_create_duplicate_positions()
     assert grid.get_agent_at(4, 3) == 5
     assert grid.get_agent_at(4, 4) == 6
     assert grid.get_agent_at(3, 3) == 9
+
+
+def test_random_seeded_tie_breaker_is_deterministic():
+    cfg.SIM.SEED = 77
+    cfg.SIM.DEVICE = "cpu"
+    cfg.GRID.W = 8
+    cfg.GRID.H = 8
+    cfg.AGENTS.N = 2
+    cfg.PHYS.TIE_BREAKER = "random_seeded"
+
+    def run_once() -> int:
+        grid = Grid()
+        registry = Registry()
+        _spawn(registry, grid, 0, 2, 3, mass=2.0, hp=10.0, hp_max=10.0)
+        _spawn(registry, grid, 1, 4, 3, mass=2.0, hp=10.0, hp_max=10.0)
+        registry.tick_counter = 5
+        physics = Physics(grid, registry)
+        actions = torch.zeros(registry.max_agents, dtype=torch.long)
+        actions[0] = 3
+        actions[1] = 7
+        physics.step(actions)
+        return int(physics.collision_log[0]["winner"])
+
+    assert run_once() == run_once()

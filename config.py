@@ -1,4 +1,16 @@
-"""Root configuration surface for Tensor Crypt."""
+"""Canonical operational configuration for Tensor Crypt.
+
+This file is the single authoritative control surface for simulation semantics,
+training cadence, checkpointing, telemetry, validation, and viewer behavior.
+
+Knob policy:
+- Active knobs directly change runtime behavior.
+- Guarded knobs are compatibility surfaces whose non-default values are rejected
+  during runtime validation rather than being silently ignored.
+- Defaults favor determinism, observability, and checkpoint safety over peak
+  throughput; performance-sensitive deployments can dial specific costs down
+  explicitly.
+"""
 
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -10,9 +22,9 @@ import torch
 class SimConfig:
     SEED: int = 42
     DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
-    DTYPE: str = "float32"
+    DTYPE: str = "float32"  # Guarded compatibility surface; the runtime currently supports only float32.
     TICKS_PER_SEC: int = 30
-    MAX_TICKS: int = 0
+    MAX_TICKS: int = 0  # Optional viewer/runtime auto-stop; 0 keeps the session open until the operator exits.
 
 
 @dataclass
@@ -39,7 +51,7 @@ class MapgenConfig:
 @dataclass
 class AgentsConfig:
     N: int = 100
-    SPAWN_MODE: str = "uniform"  # uniform | poisson_clusters
+    SPAWN_MODE: str = "uniform"  # Guarded compatibility surface; only uniform spawn is currently implemented.
     NO_STACKING: bool = True
 
 
@@ -51,7 +63,7 @@ class RespawnConfig:
     POPULATION_CEILING: int = 150
 
     # Prompt 5 reproduction control surface.
-    MODE: str = "binary_parented"
+    MODE: str = "binary_parented"  # Guarded compatibility surface; reproduction semantics remain binary parented.
     BRAIN_PARENT_SELECTOR: str = "fitness"
     TRAIT_PARENT_SELECTOR: str = "vitality"
     ANCHOR_PARENT_SELECTOR: str = "trait_parent"  # brain_parent | trait_parent | random_parent | fitter_of_two
@@ -110,7 +122,7 @@ class TraitsConfig:
     INIT: TraitInit = field(default_factory=TraitInit)
     CLAMP: TraitClamp = field(default_factory=TraitClamp)
     BUDGET: TraitBudgetConfig = field(default_factory=TraitBudgetConfig)
-    METAB_FORM: str = "affine_combo"  # constant | affine_combo
+    METAB_FORM: str = "affine_combo"  # Guarded compatibility surface; only affine_combo is currently implemented.
     METAB_COEFFS: Dict[str, float] = field(
         default_factory=lambda: {
             "base": 0.0002,
@@ -128,7 +140,7 @@ class PhysicsConfig:
     K_WINNER_DAMAGE: float = 0.2
     K_LOSER_DAMAGE: float = 0.6
     MOVE_FAIL_COST: float = -0.2
-    TIE_BREAKER: str = "strength_then_lowest_id"  # strength_then_lowest_id | random_seeded
+    TIE_BREAKER: str = "strength_then_lowest_id"  # Contest tie-break policy after strength sorting.
 
 
 @dataclass
@@ -229,10 +241,10 @@ class PPOConfig:
     EPOCHS: int = 4
     TARGET_KL: float = 0.01
     GRAD_NORM_CLIP: float = 1.0
-    REWARD_FORM: str = "sq_health_ratio"
+    REWARD_FORM: str = "sq_health_ratio"  # Guarded compatibility surface; reward semantics remain the squared HP ratio.
     UPDATE_EVERY_N_TICKS: int = 256
 
-    OWNERSHIP_MODE: str = "uid_strict"
+    OWNERSHIP_MODE: str = "uid_strict"  # Guarded compatibility surface; PPO ownership remains canonical-UID based.
     BUFFER_SCHEMA_VERSION: int = 1
     TRACK_TRAINING_STATE: bool = True
     FAMILY_AWARE_UPDATE_ORDERING: bool = True
@@ -266,7 +278,7 @@ class ViewerConfig:
     FPS: int = 30
     PAINT_BRUSH: List[int] = field(default_factory=lambda: [3, 3])
     PAINT_RATE_STEP: float = 0.05
-    SHOW_OVERLAYS: Dict[str, bool] = field(default_factory=lambda: {"h_rate": True, "h_grad": False, "rays": False})
+    SHOW_OVERLAYS: Dict[str, bool] = field(default_factory=lambda: {"h_rate": True, "h_grad": False, "rays": False})  # Viewer default overlay state.
     WINDOW_WIDTH: int = 800
     WINDOW_HEIGHT: int = 800
     CELL_SIZE: int = 10
@@ -323,7 +335,11 @@ class CheckpointConfig:
     STRICT_PPO_STATE_VALIDATION: bool = True
     VALIDATE_OPTIMIZER_TENSOR_SHAPES: bool = True
     VALIDATE_BUFFER_SCHEMA: bool = True
-    SAVE_CHECKPOINT_MANIFEST: bool = True
+    SAVE_CHECKPOINT_MANIFEST: bool = True  # Manifest emission gate used by atomic checkpoint publishing.
+    SAVE_EVERY_TICKS: int = 0  # 0 disables periodic runtime checkpoints; positive values publish a checkpoint every N ticks.
+    KEEP_LAST: int = 3  # Retention count for scheduler-produced runtime checkpoints; <=0 keeps every checkpoint.
+    DIRECTORY_NAME: str = "checkpoints"  # Subdirectory below each run directory where scheduler checkpoints are published.
+    FILENAME_PREFIX: str = "runtime_tick_"  # Stable filename prefix for periodic runtime checkpoints.
 
     # Prompt 7 atomic publish and corruption controls.
     ATOMIC_WRITE_ENABLED: bool = True
@@ -350,12 +366,13 @@ class TelemetryConfig:
     LOG_TICK_SUMMARY: bool = True
     LOG_FAMILY_SUMMARY: bool = True
     FAMILY_SUMMARY_EVERY_TICKS: int = 1
-    SUMMARY_EXPORT_CADENCE_TICKS: int = 1
+    SUMMARY_EXPORT_CADENCE_TICKS: int = 1  # Tick-summary export cadence; 1 preserves per-tick ledgers.
     EXPORT_LINEAGE: bool = True
-    LINEAGE_EXPORT_FORMAT: str = "json"  # json
+    LINEAGE_EXPORT_FORMAT: str = "json"  # Export format gate; the runtime currently emits JSON lineage graphs.
+    PARQUET_BATCH_ROWS: int = 64  # Buffered parquet flush threshold per ledger; larger batches trade visibility for lower overhead.
     FLUSH_OPEN_LIVES_ON_CLOSE: bool = True
     TRACK_CATASTROPHE_EXPOSURE: bool = True
-    ENABLE_VIEWER_INSPECTOR_ENRICHMENT: bool = True
+    ENABLE_VIEWER_INSPECTOR_ENRICHMENT: bool = True  # Toggle extended inspector details without affecting simulation semantics.
 
 
 @dataclass

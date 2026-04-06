@@ -404,11 +404,12 @@ class SidePanel:
         lines.append((f"HP: {hp:.2f} / {hp_max:.2f}", COLORS["text_dim"]))
         lines.append((f"Position: ({pos_x}, {pos_y})", COLORS["text_dim"]))
         lines.append((f"Mass / Vision / Metab: {mass:.2f} / {vision:.1f} / {metab:.4f}", COLORS["text_dim"]))
-        lines.append((f"Trait budget: {mapped['budget']:.3f}", COLORS["text_dim"]))
-        lines.append((f"Alloc H/M/V/B: {mapped['alloc_hp']:.2f} / {mapped['alloc_mass']:.2f} / {mapped['alloc_vision']:.2f} / {mapped['alloc_metab']:.2f}", COLORS["text_dim"]))
-        lines.append((f"PPO env/update/opt: {env_steps} / {ppo_updates} / {optimizer_steps}", COLORS["text_dim"]))
-        lines.append((f"Truncated rollouts: {truncated_rollouts}", COLORS["text_dim"]))
-        lines.append((f"Catastrophes active/survived: {catastrophe_summary['active_count']} / {catastrophe_summary['survived_count']}", COLORS["text_dim"]))
+        if cfg.TELEMETRY.ENABLE_VIEWER_INSPECTOR_ENRICHMENT:
+            lines.append((f"Trait budget: {mapped['budget']:.3f}", COLORS["text_dim"]))
+            lines.append((f"Alloc H/M/V/B: {mapped['alloc_hp']:.2f} / {mapped['alloc_mass']:.2f} / {mapped['alloc_vision']:.2f} / {mapped['alloc_metab']:.2f}", COLORS["text_dim"]))
+            lines.append((f"PPO env/update/opt: {env_steps} / {ppo_updates} / {optimizer_steps}", COLORS["text_dim"]))
+            lines.append((f"Truncated rollouts: {truncated_rollouts}", COLORS["text_dim"]))
+            lines.append((f"Catastrophes active/survived: {catastrophe_summary['active_count']} / {catastrophe_summary['survived_count']}", COLORS["text_dim"]))
         return lines
 
     def _draw_agent_details(self, surf, x, y, slot_id):

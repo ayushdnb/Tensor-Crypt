@@ -144,6 +144,7 @@ class Registry:
         brain = self.brains[slot_idx]
         if brain is None or getattr(brain, "family_id", None) != family_id:
             brain = create_brain(family_id).to(self.device)
+            brain.eval()
             self.brains[slot_idx] = brain
         return brain
 

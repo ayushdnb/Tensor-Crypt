@@ -1,10 +1,22 @@
-"""Core simulation engine for Tensor Crypt."""
+"""Core simulation engine for Tensor Crypt.
+
+The engine owns tick ordering, PPO transition capture boundaries, and the
+point where checkpoint/telemetry side effects observe the simulation state.
+Per-slot brains intentionally remain independent modules, so forward batching is
+kept conservative here rather than forcing an unsafe family-stacking scheme
+that could blur UID ownership or checkpoint topology semantics.
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 from torch.distributions import Categorical
 
+from ..checkpointing.atomic_checkpoint import manifest_path_for
+from ..checkpointing.runtime_checkpoint import capture_runtime_checkpoint, save_runtime_checkpoint
 from ..config_bridge import cfg
 from ..population.respawn_controller import RespawnController
 from .catastrophes import CatastropheManager
@@ -40,11 +52,20 @@ class Engine:
         )
         self.tick = 0
         self.registry.tick_counter = 0
+        self.last_runtime_checkpoint_tick = -1
+        self.last_runtime_checkpoint_path: str | None = None
+        self._runtime_checkpoint_view = SimpleNamespace(
+            registry=self.registry,
+            grid=self.grid,
+            ppo=self.ppo,
+            engine=self,
+        )
 
         if getattr(self.logger, "bootstrap_initial_population", None) is not None:
             self.logger.bootstrap_initial_population(self.registry)
 
     def _batched_brain_forward(self, obs: dict, alive_indices: torch.Tensor):
+        """Run inference for the currently alive slots without crossing UID ownership boundaries."""
         batch_size = len(alive_indices)
         all_logits = torch.zeros(batch_size, cfg.BRAIN.ACTION_DIM, device=cfg.SIM.DEVICE)
         all_values = torch.zeros(batch_size, cfg.BRAIN.VALUE_DIM, device=cfg.SIM.DEVICE)
@@ -57,7 +78,8 @@ class Engine:
                 all_logits[i, 0] = 1.0
                 continue
 
-            brain.eval()
+            # Each live UID owns a distinct module/optimizer pair, so inference stays
+            # per-brain even though the surrounding tensors are batched by slot.
             agent_obs = {key: value[i : i + 1] for key, value in obs.items()}
             logits, value = brain(agent_obs)
             all_logits[i] = logits.squeeze(0)
@@ -66,7 +88,7 @@ class Engine:
         return all_logits, all_values
 
     def _sample_actions(self, obs: dict, alive_indices: torch.Tensor):
-        with torch.no_grad():
+        with torch.inference_mode():
             if len(alive_indices) == 0:
                 return None
 
@@ -90,8 +112,7 @@ class Engine:
         values: torch.Tensor,
         dones: torch.Tensor,
     ) -> None:
-        for i, idx_int in enumerate(alive_indices.cpu().numpy()):
-            slot_idx = int(idx_int)
+        for i, slot_idx in enumerate(int(idx) for idx in alive_indices.tolist()):
             uid = self.registry.get_uid_for_slot(slot_idx)
             if uid == -1:
                 raise AssertionError(f"Alive slot {slot_idx} has no canonical UID during transition storage")
@@ -117,8 +138,7 @@ class Engine:
             return
 
         final_obs_batch = self.perception.build_observations(final_alive_indices)
-        for i, idx_int in enumerate(final_alive_indices.cpu().numpy()):
-            slot_idx = int(idx_int)
+        for i, slot_idx in enumerate(int(idx) for idx in final_alive_indices.tolist()):
             uid = self.registry.get_uid_for_slot(slot_idx)
             if uid == -1:
                 raise AssertionError(f"Alive slot {slot_idx} has no UID during PPO bootstrap capture")
@@ -142,6 +162,43 @@ class Engine:
             self.logger.log_agent_snapshot(self.tick, self.registry)
             self.logger.log_heatmap_snapshot(self.tick, self.grid)
             self.logger.log_brains(self.tick, self.registry)
+
+    def _checkpoint_dir(self) -> Path:
+        return Path(self.logger.run_dir) / cfg.CHECKPOINT.DIRECTORY_NAME
+
+    def _checkpoint_path_for_tick(self, tick: int) -> Path:
+        filename = f"{cfg.CHECKPOINT.FILENAME_PREFIX}{int(tick):08d}{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}"
+        return self._checkpoint_dir() / filename
+
+    def _prune_old_runtime_checkpoints(self) -> None:
+        keep_last = int(cfg.CHECKPOINT.KEEP_LAST)
+        if keep_last <= 0:
+            return
+
+        checkpoint_dir = self._checkpoint_dir()
+        if not checkpoint_dir.exists():
+            return
+
+        pattern = f"{cfg.CHECKPOINT.FILENAME_PREFIX}*{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}"
+        bundles = sorted(checkpoint_dir.glob(pattern))
+        for bundle_path in bundles[:-keep_last]:
+            bundle_path.unlink(missing_ok=True)
+            manifest_path_for(bundle_path).unlink(missing_ok=True)
+
+    def _maybe_save_runtime_checkpoint(self) -> None:
+        """Publish a post-tick checkpoint only after physics, deaths, births, and PPO state settle."""
+        interval = int(cfg.CHECKPOINT.SAVE_EVERY_TICKS)
+        if not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS or interval <= 0:
+            return
+        if self.tick <= 0 or self.tick % interval != 0:
+            return
+
+        checkpoint_path = self._checkpoint_path_for_tick(self.tick)
+        bundle = capture_runtime_checkpoint(self._runtime_checkpoint_view)
+        save_runtime_checkpoint(checkpoint_path, bundle)
+        self.last_runtime_checkpoint_tick = int(self.tick)
+        self.last_runtime_checkpoint_path = str(checkpoint_path)
+        self._prune_old_runtime_checkpoints()
 
     def _maybe_print_tick_progress(self) -> None:
         if self.tick % cfg.LOG.LOG_TICK_EVERY == 0:
@@ -260,5 +317,6 @@ class Engine:
 
         self._maybe_run_ppo_update()
         self._maybe_save_snapshots()
+        self._maybe_save_runtime_checkpoint()
         self._maybe_print_tick_progress()
 

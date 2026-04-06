@@ -42,7 +42,9 @@ class InputHandler:
             self.engine.catastrophes.toggle_auto_enable()
         elif ev.key == pygame.K_i:
             self.viewer.show_catastrophe_panel = not self.viewer.show_catastrophe_panel
-            self.viewer.show_catastrophe_overlay = self.viewer.show_catastrophe_panel
+            self.viewer.show_catastrophe_overlay = bool(
+                self.viewer.show_catastrophe_panel and cfg.CATASTROPHE.VIEWER_OVERLAY_ENABLED
+            )
         elif ev.key == pygame.K_o:
             self.engine.catastrophes.toggle_scheduler_pause()
 

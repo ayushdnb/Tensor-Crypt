@@ -53,8 +53,35 @@ class SimulationRuntime:
     viewer: Viewer
 
 
+def validate_runtime_config() -> None:
+    """Reject silent no-op config combinations on unsupported runtime surfaces."""
+    if str(cfg.SIM.DTYPE).lower() != "float32":
+        raise ValueError("SIM.DTYPE currently supports only 'float32'")
+    if cfg.SIM.DEVICE.startswith("cuda") and not torch.cuda.is_available():
+        raise ValueError("SIM.DEVICE requests CUDA but torch.cuda.is_available() is False")
+    if str(cfg.AGENTS.SPAWN_MODE).lower() != "uniform":
+        raise ValueError("AGENTS.SPAWN_MODE currently supports only 'uniform'")
+    if str(cfg.TRAITS.METAB_FORM).lower() != "affine_combo":
+        raise ValueError("TRAITS.METAB_FORM currently supports only 'affine_combo'")
+    if str(cfg.RESPAWN.MODE).lower() != "binary_parented":
+        raise ValueError("RESPAWN.MODE currently supports only 'binary_parented'")
+    if str(cfg.PPO.REWARD_FORM).lower() != "sq_health_ratio":
+        raise ValueError("PPO.REWARD_FORM currently supports only 'sq_health_ratio'")
+    if str(cfg.PPO.OWNERSHIP_MODE).lower() != "uid_strict":
+        raise ValueError("PPO.OWNERSHIP_MODE currently supports only 'uid_strict'")
+    if cfg.CHECKPOINT.STRICT_MANIFEST_VALIDATION and not cfg.CHECKPOINT.MANIFEST_ENABLED:
+        raise ValueError("STRICT_MANIFEST_VALIDATION requires MANIFEST_ENABLED")
+    if cfg.CHECKPOINT.WRITE_LATEST_POINTER and not cfg.CHECKPOINT.MANIFEST_ENABLED:
+        raise ValueError("WRITE_LATEST_POINTER requires MANIFEST_ENABLED")
+    if int(cfg.CHECKPOINT.SAVE_EVERY_TICKS) < 0:
+        raise ValueError("CHECKPOINT.SAVE_EVERY_TICKS must be >= 0")
+    if int(cfg.TELEMETRY.PARQUET_BATCH_ROWS) <= 0:
+        raise ValueError("TELEMETRY.PARQUET_BATCH_ROWS must be positive")
+
+
 def setup_determinism() -> None:
     """Set all random seeds for reproducibility."""
+    validate_runtime_config()
     torch.manual_seed(cfg.SIM.SEED)
     random.seed(cfg.SIM.SEED)
     np.random.seed(cfg.SIM.SEED)
@@ -74,6 +101,7 @@ def build_runtime(run_dir: str) -> SimulationRuntime:
     has been chosen by the outer entrypoint.
     """
 
+    validate_runtime_config()
     data_logger = DataLogger(run_dir)
 
     grid = Grid()

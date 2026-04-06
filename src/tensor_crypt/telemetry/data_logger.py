@@ -99,6 +99,19 @@ class DataLogger:
         self._initial_population_bootstrapped = False
         self._closed = False
 
+        self._buffer_specs = {
+            "birth": (self.birth_ledger_path, "birth_writer", "birth_schema"),
+            "genealogy": (self.genealogy_path, "genealogy_writer", "genealogy_schema"),
+            "life": (self.life_ledger_path, "life_writer", "life_schema"),
+            "death": (self.death_ledger_path, "death_writer", "death_schema"),
+            "collisions": (self.collisions_path, "collisions_writer", "collisions_schema"),
+            "ppo": (self.ppo_path, "ppo_writer", "ppo_schema"),
+            "tick_summary": (self.tick_summary_path, "tick_summary_writer", "tick_summary_schema"),
+            "family_summary": (self.family_summary_path, "family_summary_writer", "family_summary_schema"),
+            "catastrophes": (self.catastrophes_path, "catastrophes_writer", "catastrophes_schema"),
+        }
+        self._row_buffers = {name: [] for name in self._buffer_specs}
+
     def _write_parquet(self, df: pd.DataFrame, path: Path, writer_attr: str, schema_attr: str):
         writer = getattr(self, writer_attr)
         schema = getattr(self, schema_attr)
@@ -109,6 +122,30 @@ class DataLogger:
             writer = pq.ParquetWriter(str(path), table.schema, compression="gzip")
             setattr(self, writer_attr, writer)
         writer.write_table(table)
+
+    def _queue_rows(self, buffer_name: str, rows: list[dict]) -> None:
+        """Buffer parquet rows so hot-path telemetry does not degenerate into per-event file I/O."""
+        if not rows:
+            return
+        self._row_buffers[buffer_name].extend(dict(row) for row in rows)
+        if len(self._row_buffers[buffer_name]) >= max(1, int(cfg.TELEMETRY.PARQUET_BATCH_ROWS)):
+            self._flush_rows(buffer_name)
+
+    def _flush_rows(self, buffer_name: str) -> None:
+        rows = self._row_buffers[buffer_name]
+        if not rows:
+            return
+        path, writer_attr, schema_attr = self._buffer_specs[buffer_name]
+        self._write_parquet(pd.DataFrame(rows), path, writer_attr, schema_attr)
+        rows.clear()
+
+    def flush_parquet_buffers(self) -> None:
+        """Flush all buffered parquet ledgers at controlled boundaries such as close or tests."""
+        for buffer_name in self._buffer_specs:
+            self._flush_rows(buffer_name)
+
+    def get_buffered_row_count(self) -> int:
+        return int(sum(len(rows) for rows in self._row_buffers.values()))
 
     def _align_dataframe_to_schema(self, df: pd.DataFrame, schema: pa.Schema | None) -> pd.DataFrame:
         if schema is None:
@@ -286,8 +323,8 @@ class DataLogger:
                 "telemetry_schema_version": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
                 "reproduction_schema_version": cfg.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
             }
-            frame = pd.DataFrame([root_row])
-            self._write_parquet(frame, self.birth_ledger_path, "birth_writer", "birth_schema")
+            if cfg.TELEMETRY.LOG_BIRTH_LEDGER:
+                self._queue_rows("birth", [root_row])
             self._increment_tick_counter(self.birth_counts_by_tick, tick, 1)
             self._increment_family_tick_counter(self.birth_counts_by_family_and_tick, tick, registry.get_family_for_uid(uid), 1)
 
@@ -408,23 +445,20 @@ class DataLogger:
             self._increment_tick_counter(self.birth_counts_by_tick, tick, 1)
             self._increment_family_tick_counter(self.birth_counts_by_family_and_tick, tick, child_family, 1)
 
-        frame = pd.DataFrame([payload])
-        birth_frame = self._align_dataframe_to_schema(frame.copy(), self.birth_schema)
-        genealogy_frame = self._align_dataframe_to_schema(frame.copy(), self.genealogy_schema)
-        self._write_parquet(birth_frame, self.birth_ledger_path, "birth_writer", "birth_schema")
-        self._write_parquet(genealogy_frame, self.genealogy_path, "genealogy_writer", "genealogy_schema")
+        if cfg.TELEMETRY.LOG_BIRTH_LEDGER:
+            self._queue_rows("birth", [payload])
+            self._queue_rows("genealogy", [payload])
 
     def log_physics_events(self, tick: int, collision_log: list[dict]):
         if not collision_log:
             return
-        df = pd.DataFrame(collision_log)
-        if "contenders" in df.columns:
-            df["contenders"] = df["contenders"].apply(
-                lambda value: [int(item) for item in value] if isinstance(value, (list, tuple)) else []
-            )
-        if "catastrophe_collision_scalar" not in df.columns:
-            df["catastrophe_collision_scalar"] = 1.0
-        df["tick"] = tick
+        rows = []
+        for payload in collision_log:
+            row = dict(payload)
+            row["contenders"] = [int(item) for item in row.get("contenders", [])]
+            row.setdefault("catastrophe_collision_scalar", 1.0)
+            row["tick"] = int(tick)
+            rows.append(row)
         if self.collisions_schema is None:
             self.collisions_schema = pa.schema(
                 [
@@ -440,15 +474,18 @@ class DataLogger:
                     pa.field("tick", pa.int64()),
                 ]
             )
-        self._write_parquet(df, self.collisions_path, "collisions_writer", "collisions_schema")
+        self._queue_rows("collisions", rows)
 
     def log_ppo_update(self, tick: int, ppo_stats_list: list[dict]):
         if not ppo_stats_list or not cfg.TELEMETRY.LOG_PPO_UPDATE_LEDGER:
             return
-        df = pd.DataFrame(ppo_stats_list)
-        df["tick"] = tick
-        df["telemetry_schema_version"] = cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION
-        self._write_parquet(df, self.ppo_path, "ppo_writer", "ppo_schema")
+        rows = []
+        for payload in ppo_stats_list:
+            row = dict(payload)
+            row["tick"] = int(tick)
+            row["telemetry_schema_version"] = cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION
+            rows.append(row)
+        self._queue_rows("ppo", rows)
 
     def log_catastrophe_event(self, payload: dict):
         if not payload or not cfg.TELEMETRY.LOG_CATASTROPHE_EVENT_LEDGER:
@@ -465,12 +502,7 @@ class DataLogger:
             self.active_catastrophe_ids.discard(event_id)
             self.just_closed_catastrophe_ids.add(event_id)
 
-        self._write_parquet(
-            pd.DataFrame([payload]),
-            self.catastrophes_path,
-            "catastrophes_writer",
-            "catastrophes_schema",
-        )
+        self._queue_rows("catastrophes", [payload])
 
     def note_catastrophe_exposure(self, registry, catastrophe_state: dict | None = None) -> None:
         if not cfg.TELEMETRY.TRACK_CATASTROPHE_EXPOSURE:
@@ -545,8 +577,10 @@ class DataLogger:
             "telemetry_schema_version": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
         }
 
-        self._write_parquet(pd.DataFrame([death_row]), self.death_ledger_path, "death_writer", "death_schema")
-        self._write_parquet(pd.DataFrame([life_row]), self.life_ledger_path, "life_writer", "life_schema")
+        if cfg.TELEMETRY.LOG_DEATH_LEDGER:
+            self._queue_rows("death", [death_row])
+        if cfg.TELEMETRY.LOG_LIFE_LEDGER:
+            self._queue_rows("life", [life_row])
         self.finalized_lives_by_uid[int(uid)] = dict(life_row)
         self.open_lives_by_uid.pop(int(uid), None)
 
@@ -566,53 +600,37 @@ class DataLogger:
         floor_recovery_active: bool = False,
         ppo=None,
     ):
+        """Emit one compact operator-facing summary row for the tick and optional per-family slices."""
         if not cfg.TELEMETRY.LOG_TICK_SUMMARY:
             return
 
         self.current_tick = int(tick)
-        alive_mask = registry.get_alive_mask()
-        num_alive = int(alive_mask.sum().item())
         catastrophe_state = catastrophe_state or {}
+        alive_indices = registry.get_alive_indices()
+        alive_slots = [int(slot) for slot in alive_indices.tolist()]
+        num_alive = len(alive_slots)
         family_counts = {family_id: 0 for family_id in cfg.BRAIN.FAMILY_ORDER}
+        family_hp_sums = {family_id: 0.0 for family_id in cfg.BRAIN.FAMILY_ORDER}
         family_mean_hp_ratio = {family_id: None for family_id in cfg.BRAIN.FAMILY_ORDER}
 
         if num_alive > 0:
-            for slot_idx in registry.get_alive_indices().tolist():
-                family_id = registry.get_family_for_slot(int(slot_idx))
-                if family_id is not None:
-                    family_counts[family_id] += 1
+            hp = registry.data[registry.HP, alive_indices]
+            hp_max = registry.data[registry.HP_MAX, alive_indices].clamp_min(1e-6)
+            hp_ratio_values = (hp / hp_max).tolist()
+            for slot_idx, hp_ratio in zip(alive_slots, hp_ratio_values):
+                family_id = registry.get_family_for_slot(slot_idx)
+                if family_id is None:
+                    continue
+                family_counts[family_id] += 1
+                family_hp_sums[family_id] += float(hp_ratio)
+            for family_id, count in family_counts.items():
+                if count > 0:
+                    family_mean_hp_ratio[family_id] = family_hp_sums[family_id] / count
 
-            for family_id in cfg.BRAIN.FAMILY_ORDER:
-                slots = [
-                    int(slot_idx)
-                    for slot_idx in registry.get_alive_indices().tolist()
-                    if registry.get_family_for_slot(int(slot_idx)) == family_id
-                ]
-                if slots:
-                    hp = registry.data[registry.HP, slots]
-                    hp_max = registry.data[registry.HP_MAX, slots]
-                    family_mean_hp_ratio[family_id] = float((hp / (hp_max + 1e-6)).mean().item())
-
-        if num_alive == 0:
-            stats = {
-                "tick": int(tick),
-                "live_population": 0,
-                "births_this_tick": int(births_this_tick),
-                "deaths_this_tick": int(deaths_this_tick),
-                "reproduction_disabled_flag": bool(reproduction_disabled),
-                "floor_recovery_active_flag": bool(floor_recovery_active),
-                "catastrophe_active_count": int(catastrophe_state.get("active_count", 0)),
-            }
-        else:
-            hp = registry.data[registry.HP, alive_mask]
-            hp_max = registry.data[registry.HP_MAX, alive_mask]
+        if int(tick) % max(1, int(cfg.TELEMETRY.SUMMARY_EXPORT_CADENCE_TICKS)) == 0:
             stats = {
                 "tick": int(tick),
                 "live_population": int(num_alive),
-                "mean_hp_ratio": float((hp / (hp_max + 1e-6)).mean().item()),
-                "mean_mass": float(registry.data[registry.MASS, alive_mask].mean().item()),
-                "mean_vision": float(registry.data[registry.VISION, alive_mask].mean().item()),
-                "mean_metabolism": float(registry.data[registry.METABOLISM_RATE, alive_mask].mean().item()),
                 "births_this_tick": int(births_this_tick),
                 "deaths_this_tick": int(deaths_this_tick),
                 "reproduction_disabled_flag": bool(reproduction_disabled),
@@ -622,14 +640,27 @@ class DataLogger:
                 "catastrophe_active_names": "|".join(catastrophe_state.get("active_names", [])),
                 "catastrophe_next_tick": catastrophe_state.get("next_auto_tick", -1),
                 "catastrophe_paused": bool(catastrophe_state.get("scheduler_paused", False)),
+                "ppo_buffer_uid_count": 0 if ppo is None else int(len(ppo.buffers_by_uid)),
+                "ppo_buffer_transition_count": 0 if ppo is None else int(sum(len(buffer) for buffer in ppo.buffers_by_uid.values())),
+                "optimizer_uid_count": 0 if ppo is None else int(len(ppo.optimizers_by_uid)),
+                "max_lineage_depth_alive": max((int(registry.uid_generation_depth.get(registry.get_uid_for_slot(slot_idx), 0)) for slot_idx in alive_slots), default=0),
+                "buffered_parquet_rows": int(self.get_buffered_row_count()),
                 **physics_stats,
             }
-            for family_id, count in family_counts.items():
-                slug = family_id.lower().replace(" ", "_")
-                stats[f"family_count__{slug}"] = int(count)
-
-        stats["telemetry_schema_version"] = cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION
-        self._write_parquet(pd.DataFrame([stats]), self.tick_summary_path, "tick_summary_writer", "tick_summary_schema")
+            if num_alive > 0:
+                stats.update(
+                    {
+                        "mean_hp_ratio": float((hp / hp_max).mean().item()),
+                        "mean_mass": float(registry.data[registry.MASS, alive_indices].mean().item()),
+                        "mean_vision": float(registry.data[registry.VISION, alive_indices].mean().item()),
+                        "mean_metabolism": float(registry.data[registry.METABOLISM_RATE, alive_indices].mean().item()),
+                    }
+                )
+                for family_id, count in family_counts.items():
+                    slug = family_id.lower().replace(" ", "_")
+                    stats[f"family_count__{slug}"] = int(count)
+            stats["telemetry_schema_version"] = cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION
+            self._queue_rows("tick_summary", [stats])
 
         if cfg.TELEMETRY.LOG_FAMILY_SUMMARY and tick % max(1, cfg.TELEMETRY.FAMILY_SUMMARY_EVERY_TICKS) == 0:
             rows = []
@@ -653,12 +684,7 @@ class DataLogger:
                         "telemetry_schema_version": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
                     }
                 )
-            self._write_parquet(
-                pd.DataFrame(rows),
-                self.family_summary_path,
-                "family_summary_writer",
-                "family_summary_schema",
-            )
+            self._queue_rows("family_summary", rows)
 
     def _mean_lineage_depth_for_family(self, registry, family_id: str) -> float | None:
         depths = [
@@ -673,10 +699,13 @@ class DataLogger:
     def export_lineage(self, registry) -> dict | None:
         if not cfg.TELEMETRY.EXPORT_LINEAGE:
             return None
+        if str(cfg.TELEMETRY.LINEAGE_EXPORT_FORMAT).lower() != "json":
+            raise ValueError(f"Unsupported lineage export format: {cfg.TELEMETRY.LINEAGE_EXPORT_FORMAT}")
         rows_by_uid = {**self.finalized_lives_by_uid, **self.open_lives_by_uid}
         return export_lineage_json(self.lineage_path, registry, life_rows_by_uid=rows_by_uid)
 
     def close(self, registry=None):
+        """Finalize open life rows, flush buffered ledgers, and close file handles exactly once."""
         if self._closed:
             return
 
@@ -694,10 +723,12 @@ class DataLogger:
                         "catastrophes_survived_count": int(len(self.survived_catastrophes_by_uid.get(uid, set()))),
                     }
                 )
-                self._write_parquet(pd.DataFrame([life_row]), self.life_ledger_path, "life_writer", "life_schema")
+                if cfg.TELEMETRY.LOG_LIFE_LEDGER:
+                    self._queue_rows("life", [life_row])
                 self.finalized_lives_by_uid[int(uid)] = dict(life_row)
             self.export_lineage(registry)
 
+        self.flush_parquet_buffers()
         self.h5_file.close()
         for attr in (
             "birth_writer",

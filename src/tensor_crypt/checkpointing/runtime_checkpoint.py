@@ -24,6 +24,7 @@ from ..learning.ppo import PPO
 from .atomic_checkpoint import (
     atomic_save_checkpoint_files,
     load_checkpoint_bundle,
+    resolve_latest_checkpoint_bundle,
     validate_checkpoint_file_set,
 )
 
@@ -108,6 +109,7 @@ def restore_rng_state(rng_state: dict) -> None:
 
 
 def capture_runtime_checkpoint(runtime) -> dict:
+    """Capture the runtime substrate needed for a deterministic, ownership-safe restore."""
     registry = runtime.registry
     brain_state_by_uid = {}
     brain_metadata_by_uid = {}
@@ -168,7 +170,7 @@ def capture_runtime_checkpoint(runtime) -> dict:
         "brain_metadata_by_uid": brain_metadata_by_uid,
         "ppo_state": {
             "buffer_state_by_uid": runtime.ppo.serialize_all_buffers(),
-            "training_state_by_uid": runtime.ppo.serialize_training_state(),
+            "training_state_by_uid": runtime.ppo.serialize_training_state() if cfg.CHECKPOINT.CAPTURE_PPO_TRAINING_STATE else {},
             "optimizer_state_by_uid": optimizer_state_by_uid,
             "optimizer_metadata_by_uid": optimizer_metadata_by_uid,
             "scaler_state": scaler_state,
@@ -183,6 +185,7 @@ def capture_runtime_checkpoint(runtime) -> dict:
 
 
 def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None = None) -> None:
+    """Validate schema, UID ownership, and optional manifest metadata before restore."""
     required_top_level = {
         "checkpoint_schema_version",
         "schema_versions",
@@ -213,6 +216,22 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
         if key not in registry_state:
             raise ValueError(f"Checkpoint registry_state is missing '{key}'")
 
+    if cfg_obj.CHECKPOINT.STRICT_SCHEMA_VALIDATION:
+        data = registry_state["data"]
+        slot_uid_tensor = registry_state["slot_uid"]
+        slot_parent_uid_tensor = registry_state["slot_parent_uid"]
+        fitness = registry_state["fitness"]
+        if data.dim() != 2:
+            raise ValueError("Checkpoint registry_state.data must be rank 2")
+        if slot_uid_tensor.dim() != 1 or slot_parent_uid_tensor.dim() != 1 or fitness.dim() != 1:
+            raise ValueError("Checkpoint slot and fitness tensors must be rank 1")
+        if data.shape[1] != slot_uid_tensor.shape[0]:
+            raise ValueError("Checkpoint registry_state.data width does not match slot_uid length")
+        if slot_parent_uid_tensor.shape != slot_uid_tensor.shape:
+            raise ValueError("Checkpoint slot_parent_uid shape does not match slot_uid shape")
+        if fitness.shape != slot_uid_tensor.shape:
+            raise ValueError("Checkpoint fitness shape does not match slot_uid shape")
+
     uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
     uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
     uid_parent_roles = {int(uid): {str(k): int(v) for k, v in payload.items()} for uid, payload in registry_state["uid_parent_roles"].items()}
@@ -235,16 +254,40 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
         if uid not in known_uids:
             raise ValueError(f"Checkpoint slot bindings reference unknown UID {uid}")
 
+    next_agent_uid = int(registry_state["next_agent_uid"])
+    if next_agent_uid < len(known_uids):
+        raise ValueError("Checkpoint next_agent_uid is smaller than the lifecycle ledger size")
+    if known_uids and next_agent_uid <= max(known_uids):
+        raise ValueError("Checkpoint next_agent_uid does not advance beyond the maximum allocated UID")
+
+    if cfg_obj.CHECKPOINT.STRICT_UID_VALIDATION:
+        active_records = {
+            uid: record
+            for uid, record in uid_lifecycle.items()
+            if record.is_active and record.current_slot is not None
+        }
+        if set(active_records.keys()) != active_uid_set:
+            raise ValueError("Checkpoint active lifecycle records do not match active slot bindings")
+        for uid, record in uid_lifecycle.items():
+            if record.is_active:
+                if record.current_slot is None:
+                    raise ValueError(f"Checkpoint active UID {uid} is missing current_slot")
+                if int(slot_uid[record.current_slot].item()) != uid:
+                    raise ValueError(f"Checkpoint active UID {uid} disagrees with slot bindings")
+            elif record.current_slot is not None:
+                raise ValueError(f"Checkpoint inactive UID {uid} still records a current_slot")
+
     for surface_name in ("brain_state_by_uid", "brain_metadata_by_uid"):
         surface_uids = {int(uid) for uid in bundle[surface_name].keys()}
         if surface_uids != active_uid_set:
             raise ValueError(f"Checkpoint {surface_name} does not match active UID bindings")
 
-    for surface_name in ("training_state_by_uid", "buffer_state_by_uid", "optimizer_state_by_uid", "optimizer_metadata_by_uid"):
-        surface = bundle["ppo_state"].get(surface_name, {})
-        unknown_uids = sorted(int(uid) for uid in surface.keys() if int(uid) not in known_uids)
-        if unknown_uids:
-            raise ValueError(f"Checkpoint {surface_name} references unknown UID {unknown_uids[0]}")
+    if cfg_obj.CHECKPOINT.STRICT_PPO_STATE_VALIDATION:
+        for surface_name in ("training_state_by_uid", "buffer_state_by_uid", "optimizer_state_by_uid", "optimizer_metadata_by_uid"):
+            surface = bundle["ppo_state"].get(surface_name, {})
+            unknown_uids = sorted(int(uid) for uid in surface.keys() if int(uid) not in known_uids)
+            if unknown_uids:
+                raise ValueError(f"Checkpoint {surface_name} references unknown UID {unknown_uids[0]}")
 
     for uid in uid_lifecycle:
         validate_bloodline_family(uid_family[uid])
@@ -262,8 +305,9 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
         if actual_topology != expected_topology_by_family[family_id]:
             raise ValueError(f"Checkpoint brain topology signature mismatch for UID {uid}")
 
-    for uid, payload in bundle["ppo_state"]["buffer_state_by_uid"].items():
-        PPO.validate_serialized_buffer_payload(int(uid), payload)
+    if cfg_obj.CHECKPOINT.STRICT_PPO_STATE_VALIDATION:
+        for uid, payload in bundle["ppo_state"]["buffer_state_by_uid"].items():
+            PPO.validate_serialized_buffer_payload(int(uid), payload)
 
     catastrophe_state = bundle["engine_state"].get("catastrophe_state")
     if catastrophe_state is not None and cfg_obj.CATASTROPHE.STRICT_CHECKPOINT_VALIDATION:
@@ -321,6 +365,7 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
         registry.slot_family[slot_idx] = family_id
         brain = create_brain(family_id).to(registry.device)
         brain.load_state_dict(brain_state_by_uid[uid])
+        brain.eval()
         registry.brains[slot_idx] = brain
 
     runtime.grid.grid.copy_(bundle["grid_state"]["grid"].to(runtime.grid.device))
@@ -332,7 +377,10 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     ppo_state = bundle["ppo_state"]
     runtime.ppo.optimizers_by_uid = {}
     runtime.ppo.load_serialized_buffers(ppo_state.get("buffer_state_by_uid", {}), device=cfg.SIM.DEVICE)
-    runtime.ppo.load_serialized_training_state(ppo_state.get("training_state_by_uid", {}))
+    if cfg.CHECKPOINT.CAPTURE_PPO_TRAINING_STATE:
+        runtime.ppo.load_serialized_training_state(ppo_state.get("training_state_by_uid", {}))
+    else:
+        runtime.ppo.training_state_by_uid = {}
     optimizer_metadata_by_uid = {int(uid): payload for uid, payload in ppo_state.get("optimizer_metadata_by_uid", {}).items()}
     for uid, optimizer_state in ppo_state.get("optimizer_state_by_uid", {}).items():
         uid_int = int(uid)
@@ -365,7 +413,7 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
 def save_runtime_checkpoint(path: str | Path, bundle: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if cfg.CHECKPOINT.ATOMIC_WRITE_ENABLED and cfg.CHECKPOINT.MANIFEST_ENABLED:
+    if cfg.CHECKPOINT.ATOMIC_WRITE_ENABLED and cfg.CHECKPOINT.MANIFEST_ENABLED and cfg.CHECKPOINT.SAVE_CHECKPOINT_MANIFEST:
         atomic_save_checkpoint_files(path, bundle)
         return
     torch.save(bundle, path)
@@ -373,13 +421,12 @@ def save_runtime_checkpoint(path: str | Path, bundle: dict) -> None:
 
 def load_runtime_checkpoint(path: str | Path) -> dict:
     path = Path(path)
+    if path.is_dir() or path.name == cfg.CHECKPOINT.LATEST_POINTER_FILENAME:
+        path = resolve_latest_checkpoint_bundle(path)
     if cfg.CHECKPOINT.STRICT_MANIFEST_VALIDATION and path.exists():
-        try:
-            bundle, manifest = load_checkpoint_bundle(path)
-            validate_runtime_checkpoint(bundle, cfg, manifest=manifest)
-            return bundle
-        except FileNotFoundError:
-            pass
+        bundle, manifest = load_checkpoint_bundle(path)
+        validate_runtime_checkpoint(bundle, cfg, manifest=manifest)
+        return bundle
     bundle = torch.load(path, map_location="cpu", weights_only=False)
     validate_runtime_checkpoint(bundle, cfg)
     return bundle

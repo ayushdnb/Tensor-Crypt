@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from tensor_crypt.checkpointing import resolve_latest_checkpoint_bundle
 from tensor_crypt.checkpointing.runtime_checkpoint import (
     capture_runtime_checkpoint,
     load_runtime_checkpoint,
@@ -53,3 +54,26 @@ def test_prompt7_latest_pointer_references_published_bundle(runtime_builder, tmp
 
     assert pointer["checkpoint_path"].endswith("latest_pointer_checkpoint.pt")
     assert int(pointer["tick"]) == int(runtime.engine.tick)
+
+
+def test_prompt7_resolve_latest_pointer_returns_published_bundle(runtime_builder, tmp_path):
+    runtime = runtime_builder(seed=24, agents=4, walls=0, hzones=0)
+    bundle = capture_runtime_checkpoint(runtime)
+    checkpoint_path = tmp_path / "resolved_latest_checkpoint.pt"
+
+    save_runtime_checkpoint(checkpoint_path, bundle)
+
+    resolved = resolve_latest_checkpoint_bundle(tmp_path)
+    assert resolved == checkpoint_path
+
+
+def test_prompt7_strict_manifest_validation_rejects_missing_manifest(runtime_builder, tmp_path):
+    runtime = runtime_builder(seed=25, agents=4, walls=0, hzones=0)
+    bundle = capture_runtime_checkpoint(runtime)
+    checkpoint_path = tmp_path / "manifest_required_checkpoint.pt"
+
+    save_runtime_checkpoint(checkpoint_path, bundle)
+    checkpoint_path.with_suffix(".pt.manifest.json").unlink()
+
+    with pytest.raises(FileNotFoundError):
+        load_runtime_checkpoint(checkpoint_path)
