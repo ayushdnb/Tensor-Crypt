@@ -1,6 +1,12 @@
-from __future__ import annotations
+"""Bloodline-aware policy/value networks for Tensor Crypt.
 
-"""Bloodline-aware policy/value networks for Tensor Crypt."""
+This module owns the canonical policy/value architecture surface. Active UIDs
+reach a live brain through slot bindings in the registry, but family topology
+and observation-shape contracts are checkpoint-visible invariants that should
+not drift silently.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Tuple

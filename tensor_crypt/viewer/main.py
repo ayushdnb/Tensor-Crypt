@@ -1,3 +1,5 @@
+"""Pygame viewer runtime for Tensor Crypt."""
+
 import pygame
 import torch
 
@@ -11,6 +13,8 @@ from .text_cache import TextCache
 
 
 class Viewer:
+    """Own the interactive render loop and UI state."""
+
     def __init__(self, engine):
         pygame.init()
         pygame.font.init()

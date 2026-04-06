@@ -1,6 +1,7 @@
+"""Binary reproduction, mutation, and offspring-placement helpers."""
+
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass
 from typing import Iterable
@@ -219,6 +220,8 @@ def birth_hp_value(traits: dict[str, float]) -> float:
 
 
 def _placement_candidates(ax: int, ay: int) -> Iterable[tuple[int, int]]:
+    # Placement expands in shuffled square rings so nearby cells are preferred
+    # without introducing a directional bias across births.
     r_min = max(0, int(cfg.RESPAWN.OFFSPRING_JITTER_RADIUS_MIN))
     r_max = max(r_min, int(cfg.RESPAWN.OFFSPRING_JITTER_RADIUS_MAX))
     points: list[tuple[int, int]] = []
@@ -235,6 +238,7 @@ def _placement_candidates(ax: int, ay: int) -> Iterable[tuple[int, int]]:
 
 
 def place_offspring_near_anchor(registry, grid, anchor_slot: int, evolution) -> PlacementResult:
+    """Resolve a spawn cell near the anchor parent or report why it failed."""
     ax = int(registry.data[registry.X, anchor_slot].item())
     ay = int(registry.data[registry.Y, anchor_slot].item())
     attempts = 0
@@ -254,7 +258,7 @@ def place_offspring_near_anchor(registry, grid, anchor_slot: int, evolution) -> 
     if not cfg.RESPAWN.ALLOW_FALLBACK_GLOBAL_PLACEMENT:
         return PlacementResult(x=None, y=None, attempts=attempts, used_global_fallback=False, failure_reason="local_placement_failed")
 
-    gx, gy = evolution._find_free_cell(grid)
+    gx, gy = evolution.find_free_cell(grid)
     if gx is None:
         return PlacementResult(x=None, y=None, attempts=attempts, used_global_fallback=True, failure_reason="global_placement_failed")
     return PlacementResult(x=gx, y=gy, attempts=attempts, used_global_fallback=True, failure_reason=None)

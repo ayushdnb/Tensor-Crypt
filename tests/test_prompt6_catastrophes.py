@@ -4,7 +4,6 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
-import pytest
 import torch
 
 from tensor_crypt.agents.state_registry import Registry
@@ -169,6 +168,7 @@ def test_veil_of_somnyr_scales_effective_vision_without_mutating_trait_tensor(tm
     assert float(engine.registry.data[engine.registry.VISION, slot].item()) == base_trait
     logger.close()
 
+
 def test_checkpoint_roundtrip_restores_catastrophe_state(tmp_path):
     from tensor_crypt.checkpointing.runtime_checkpoint import capture_runtime_checkpoint, restore_runtime_checkpoint
 
@@ -190,6 +190,20 @@ def test_checkpoint_roundtrip_restores_catastrophe_state(tmp_path):
     assert engine2.catastrophes.build_status(3)["active_names"] == ["Glass Requiem"]
     logger.close()
     logger2.close()
+
+def test_veil_of_somnyr_updates_canonical_vision_feature_only(tmp_path):
+    engine, logger = _make_engine(tmp_path)
+    slot = 0
+    before = engine.perception.build_observations(torch.tensor([slot], dtype=torch.long))["canonical_self"][0].clone()
+    engine.catastrophes._start_event("veil_of_somnyr", 1, manual=True)
+    engine.grid.paint_hzones()
+    engine.catastrophes.apply_world_overrides(1)
+    after = engine.perception.build_observations(torch.tensor([slot], dtype=torch.long))["canonical_self"][0]
+
+    assert after[4].item() < before[4].item()
+    assert torch.isclose(after[3], before[3])
+    logger.close()
+
 
 def test_viewer_hotkeys_route_to_catastrophe_manager(tmp_path):
     engine, logger = _make_engine(tmp_path)

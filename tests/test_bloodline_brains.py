@@ -1,6 +1,6 @@
 import torch
 
-from tensor_crypt.agents.brain import Brain, create_brain, get_bloodline_families
+from tensor_crypt.agents.brain import create_brain, get_bloodline_families
 from tensor_crypt.checkpointing.runtime_checkpoint import capture_runtime_checkpoint, restore_runtime_checkpoint
 from tensor_crypt.config_bridge import cfg
 from tensor_crypt.viewer.colors import get_bloodline_base_color
@@ -77,6 +77,7 @@ def test_respawn_preserves_parent_bloodline(runtime_builder):
     assert child_family == parent_family
     assert registry.brains[slot].family_id == parent_family
 
+
 def test_checkpoint_restore_recreates_correct_bloodline_families(runtime_builder):
     runtime = runtime_builder(seed=303, width=14, height=14, agents=8, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
     bundle = capture_runtime_checkpoint(runtime)
@@ -94,7 +95,6 @@ def test_checkpoint_restore_recreates_correct_bloodline_families(runtime_builder
 def test_viewer_color_mapping_and_inspector_family_label(runtime_builder):
     runtime = runtime_builder(seed=304, width=12, height=12, agents=5, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
     viewer = runtime.viewer
-    state_data = viewer._prepare_state_data()
     slot_id = runtime.registry.get_alive_indices().tolist()[0]
     family_id = runtime.registry.get_family_for_slot(slot_id)
 

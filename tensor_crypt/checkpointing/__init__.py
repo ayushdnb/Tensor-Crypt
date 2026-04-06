@@ -1,3 +1,5 @@
+"""Public checkpoint helper surface."""
+
 from .atomic_checkpoint import (
     atomic_save_checkpoint_files,
     latest_pointer_path_for,

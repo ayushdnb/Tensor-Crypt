@@ -1,3 +1,5 @@
+"""Public validation harness helpers."""
+
 from .final_validation import (
     run_catastrophe_repro_probe,
     run_determinism_probe,

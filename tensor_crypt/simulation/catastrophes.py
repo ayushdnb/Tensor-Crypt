@@ -11,7 +11,7 @@ Design doctrine:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import random
 from typing import Any
 
@@ -408,8 +408,6 @@ class CatastropheManager:
         reproduction_enabled = True
         mutation_overrides: dict[str, float] = {}
 
-        thorn_march_safe_rect = None
-        woundtide_front_x = None
 
         for event in self._active:
             params = event.params
@@ -440,7 +438,6 @@ class CatastropheManager:
                 x1 = max(1, center_x - half_width)
                 x2 = min(self.grid.W - 2, center_x + half_width)
                 field[:, x1 : x2 + 1] = neg_rate
-                woundtide_front_x = center_x
 
             elif event.catastrophe_id == "the_hollow_fast":
                 positive_scalar = float(params.get("positive_scalar", 0.25))
@@ -479,7 +476,6 @@ class CatastropheManager:
                 mask = torch.ones_like(field, dtype=torch.bool)
                 mask[y1 : y2 + 1, x1 : x2 + 1] = False
                 field = torch.where(mask, torch.tensor(float(params.get("negative_rate", -2.0)), device=field.device), field)
-                thorn_march_safe_rect = [x1, y1, x2, y2]
 
             elif event.catastrophe_id == "the_barren_hymn":
                 reproduction_enabled = False

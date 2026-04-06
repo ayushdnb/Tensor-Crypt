@@ -1,3 +1,5 @@
+"""Evolution helpers used by death finalization and birth mutation paths."""
+
 from __future__ import annotations
 
 import random
@@ -9,6 +11,8 @@ from ..learning.ppo import PPO
 
 
 class Evolution:
+    """Small coordination helpers shared by death and reproduction flows."""
+
     def __init__(self, registry):
         self.registry = registry
 
@@ -25,7 +29,7 @@ class Evolution:
             self.registry.finalize_death(dead_idx, death_tick, assert_after=False)
         self.registry.assert_identity_invariants()
 
-    def _apply_policy_noise(self, brain: torch.nn.Module, sigma: float | None = None):
+    def apply_policy_noise(self, brain: torch.nn.Module, sigma: float | None = None) -> None:
         noise_sd = float(cfg.EVOL.POLICY_NOISE_SD if sigma is None else sigma)
         if noise_sd <= 0.0:
             return
@@ -33,10 +37,18 @@ class Evolution:
             for param in brain.parameters():
                 param.add_(torch.randn_like(param) * noise_sd)
 
-    def _find_free_cell(self, grid):
+    def _apply_policy_noise(self, brain: torch.nn.Module, sigma: float | None = None) -> None:
+        """Compatibility alias for older call sites."""
+        self.apply_policy_noise(brain, sigma=sigma)
+
+    def find_free_cell(self, grid) -> tuple[int | None, int | None]:
         for _ in range(100):
             x = random.randint(1, grid.W - 2)
             y = random.randint(1, grid.H - 2)
             if not grid.is_wall(x, y) and grid.get_agent_at(x, y) == -1:
                 return x, y
         return None, None
+
+    def _find_free_cell(self, grid) -> tuple[int | None, int | None]:
+        """Compatibility alias for older call sites."""
+        return self.find_free_cell(grid)

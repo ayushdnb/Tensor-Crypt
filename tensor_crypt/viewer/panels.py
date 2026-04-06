@@ -1,3 +1,5 @@
+"""Viewer panels and world rendering helpers."""
+
 import math
 
 import pygame

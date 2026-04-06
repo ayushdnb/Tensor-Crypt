@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -239,7 +238,6 @@ class DataLogger:
                 "inherited_family_source": "root_seed",
                 "spawn_x": spawn_x,
                 "spawn_y": spawn_y,
-                "placement_attempts": 1,
                 "used_global_fallback": False,
                 "floor_recovery_flag": False,
                 "thresholds_suspended_flag": False,
@@ -344,7 +342,6 @@ class DataLogger:
             "inherited_family_source": brain_parent_family if brain_parent_family is not None else "root_seed",
             "spawn_x": int(placement.get("x", placement.get("spawn_x", -1))) if placement.get("x", placement.get("spawn_x")) is not None else None,
             "spawn_y": int(placement.get("y", placement.get("spawn_y", -1))) if placement.get("y", placement.get("spawn_y")) is not None else None,
-            "placement_attempts": int(placement.get("attempts", 0)),
             "used_global_fallback": bool(placement.get("used_global_fallback", False)),
             "floor_recovery_flag": bool(floor_recovery),
             "thresholds_suspended_flag": bool(floor_recovery and cfg.RESPAWN.FLOOR_RECOVERY_SUSPEND_THRESHOLDS),

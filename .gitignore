@@ -40,6 +40,7 @@ dist/
 *.log
 logs/
 audit_tmp/
+audit_runs*/
 codes/
 
 # Operating system files

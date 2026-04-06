@@ -1,3 +1,5 @@
+"""Viewer input routing and interaction semantics."""
+
 from ..config_bridge import cfg
 import pygame
 
@@ -67,6 +69,10 @@ class InputHandler:
             elif ev.type == pygame.VIDEORESIZE:
                 self.viewer.Wpix, self.viewer.Hpix = max(1024, ev.w), max(768, ev.h)
                 self.viewer.screen = pygame.display.set_mode((self.viewer.Wpix, self.viewer.Hpix), pygame.RESIZABLE)
+                # Recompute the world viewport after the new window size lands.
+                # Using the stale pre-resize rect leaves camera screen-space
+                # transforms out of sync until a later rebuild.
+                wrect = self.viewer.layout.world_rect()
                 self.cam.update_screen_size(wrect.width, wrect.height)
                 self.viewer.world_renderer.static_surf = None
             elif ev.type == pygame.KEYDOWN:

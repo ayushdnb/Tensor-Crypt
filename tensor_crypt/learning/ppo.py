@@ -415,22 +415,28 @@ class PPO:
         last_value: torch.Tensor,
         last_done: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute GAE returns for one UID-owned rollout.
+
+        The bootstrap gate must use the current transition's terminal flag, not
+        the next transition's, otherwise advantages can leak across a death or
+        other done boundary when iterating backward.
+        """
         gae = torch.tensor(0.0, device=cfg.SIM.DEVICE)
         returns = []
 
         for t in reversed(range(len(rewards))):
             if t == len(rewards) - 1:
-                next_val = last_value
-                next_done = last_done
+                bootstrap_value = last_value
+                bootstrap_done = last_done
             else:
-                next_val = values[t + 1]
-                next_done = dones[t]
+                bootstrap_value = values[t + 1]
+                bootstrap_done = dones[t]
 
             reward_t = rewards[t]
             value_t = values[t]
-            done_t = dones[t]
-            delta = reward_t + cfg.PPO.GAMMA * next_val * (1 - next_done) - value_t
-            gae = delta + cfg.PPO.GAMMA * cfg.PPO.LAMBDA * (1 - next_done) * gae
+            delta = reward_t + cfg.PPO.GAMMA * bootstrap_value * (1 - bootstrap_done) - value_t
+            gae = delta + cfg.PPO.GAMMA * cfg.PPO.LAMBDA * (1 - bootstrap_done) * gae
             returns.insert(0, gae + value_t)
 
         returns_tensor = torch.stack(returns).reshape(-1)

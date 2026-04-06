@@ -1,3 +1,10 @@
+"""Slot-backed agent registry with canonical UID lifecycle ownership.
+
+The simulation still stores dense per-slot tensors for runtime speed, but
+identity, lineage, and PPO ownership semantics are defined in terms of
+monotonic UIDs. Slot reuse must never recycle canonical ownership state.
+"""
+
 from __future__ import annotations
 
 import random
@@ -23,6 +30,8 @@ class AgentLifecycleRecord:
 
 
 class Registry:
+    """Own the slot tensors and the UID-to-slot lifecycle contract."""
+
     ALIVE = 0
     X = 1
     Y = 2
@@ -164,6 +173,9 @@ class Registry:
     def get_family_for_uid(self, uid: int) -> str:
         family_id = self.uid_family.get(uid)
         if family_id is None:
+            # Root seeds choose from the configured family assignment policy.
+            # Parented births inherit the brain parent's family unless an
+            # explicit family override has already been resolved upstream.
             raise KeyError(f"UID {uid} has no bloodline family binding")
         return family_id
 

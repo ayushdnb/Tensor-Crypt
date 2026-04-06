@@ -1,4 +1,9 @@
-"""World-state modules."""
+"""Observation construction and ray-casting for live agents.
+
+The canonical observation layout is shared by the brain, PPO storage, and
+checkpoint surfaces, so feature ordering is a cross-module contract rather than
+an implementation detail of this file.
+"""
 
 import math
 
@@ -176,5 +181,5 @@ class Perception:
             cfg.TRAITS.CLAMP.vision[0],
             cfg.TRAITS.CLAMP.vision[1],
         )
-        obs["canonical_self"][:, 3] = vision_norm
+        obs["canonical_self"][:, 4] = vision_norm
         return obs

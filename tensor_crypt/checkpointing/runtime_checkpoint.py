@@ -1,3 +1,10 @@
+"""Runtime checkpoint capture, validation, and restore helpers.
+
+Restore order is intentionally conservative: registry bindings are rebuilt
+before brains, then PPO state is attached to the reconstituted active UIDs.
+That ordering is part of the checkpoint ownership contract.
+"""
+
 from __future__ import annotations
 
 import copy

@@ -1,5 +1,4 @@
 import pytest
-import torch
 
 from tensor_crypt.checkpointing.runtime_checkpoint import capture_runtime_checkpoint, restore_runtime_checkpoint
 from tensor_crypt.config_bridge import cfg

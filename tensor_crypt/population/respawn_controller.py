@@ -1,3 +1,5 @@
+"""Respawn controller for binary parented births and extinction recovery."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -55,7 +57,7 @@ class RespawnController:
             latent = default_trait_latent()
             mapped = trait_values_from_latent(latent)
             traits = {"mass": mapped["mass"], "hp_max": mapped["hp_max"], "vision": mapped["vision"], "metab": mapped["metab"]}
-            x, y = self.evolution._find_free_cell(grid)
+            x, y = self.evolution.find_free_cell(grid)
             if x is None:
                 continue
             child_uid = registry.spawn_agent(
@@ -131,6 +133,8 @@ class RespawnController:
         for slot_idx in dead_slots:
             if spawns >= num_to_spawn:
                 break
+            # Binary reproduction keeps the role split explicit: brain lineage,
+            # trait lineage, and placement anchor may come from different UIDs.
             parent_roles = select_parent_roles(registry, floor_recovery=is_below_floor)
 
             brain_parent_slot = registry.get_slot_for_uid(parent_roles.brain_parent_uid)
@@ -184,7 +188,10 @@ class RespawnController:
                 parent_brain = registry.brains[brain_parent_slot]
                 if parent_brain is not None:
                     child_brain.load_state_dict(parent_brain.state_dict())
-            self.evolution._apply_policy_noise(child_brain, sigma=policy_noise_sigma(mutation_flags, mutation_overrides=self.mutation_overrides))
+            self.evolution.apply_policy_noise(
+                child_brain,
+                sigma=policy_noise_sigma(mutation_flags, mutation_overrides=self.mutation_overrides),
+            )
 
             child_uid = registry.spawn_agent(
                 slot_idx,

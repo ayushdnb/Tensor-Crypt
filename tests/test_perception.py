@@ -1,5 +1,3 @@
-import math
-
 import torch
 
 from tensor_crypt.agents.brain import Brain
@@ -42,7 +40,7 @@ def test_perception_self_exclusion_and_cardinal_walls_use_one_hot():
 
     grid = Grid()
     registry = Registry()
-    registry.spawn_agent(0, 8, 8, -1, grid)
+    registry.spawn_agent(0, 8, 8, -1, grid, traits={"mass": 2.0, "vision": 16.0, "hp_max": 10.0, "metab": 0.0})
     perception = Perception(grid, registry)
 
     obs = perception.build_observations(registry.get_alive_indices())
