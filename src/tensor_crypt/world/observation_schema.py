@@ -100,6 +100,7 @@ def build_observation_bundle(
     grid,
     alive_indices: torch.Tensor,
     canonical_rays: torch.Tensor,
+    vision_norm_override: torch.Tensor | None = None,
 ) -> dict:
     if len(alive_indices) == 0:
         return build_empty_observation_batch(grid.device, cfg.PERCEPT.NUM_RAYS)
@@ -121,11 +122,13 @@ def build_observation_bundle(
         cfg.TRAITS.CLAMP.hp_max[0],
         cfg.TRAITS.CLAMP.hp_max[1],
     )
-    vision_norm = normalize_from_bounds(
-        registry.data[registry.VISION, alive_indices],
-        cfg.TRAITS.CLAMP.vision[0],
-        cfg.TRAITS.CLAMP.vision[1],
-    )
+    vision_norm = vision_norm_override
+    if vision_norm is None:
+        vision_norm = normalize_from_bounds(
+            registry.data[registry.VISION, alive_indices],
+            cfg.TRAITS.CLAMP.vision[0],
+            cfg.TRAITS.CLAMP.vision[1],
+        )
     metabolism_norm = normalize_from_bounds(
         registry.data[registry.METABOLISM_RATE, alive_indices],
         cfg.TRAITS.CLAMP.metab[0],
@@ -209,3 +212,4 @@ def build_observation_bundle(
         obs["canonical_self"] = canonical_self
         obs["canonical_context"] = canonical_context
     return obs
+

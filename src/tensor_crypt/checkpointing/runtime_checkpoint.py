@@ -253,8 +253,14 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
             if key not in roles:
                 raise ValueError(f"Checkpoint parent roles missing {key} for UID {uid}")
 
+    expected_topology_by_family: dict[str, list[list | tuple]] = {}
     for uid, metadata in bundle["brain_metadata_by_uid"].items():
-        validate_bloodline_family(metadata["family_id"])
+        family_id = validate_bloodline_family(metadata["family_id"])
+        if family_id not in expected_topology_by_family:
+            expected_topology_by_family[family_id] = [list(item) for item in create_brain(family_id).get_topology_signature()]
+        actual_topology = [list(item) for item in metadata.get("topology_signature", [])]
+        if actual_topology != expected_topology_by_family[family_id]:
+            raise ValueError(f"Checkpoint brain topology signature mismatch for UID {uid}")
 
     for uid, payload in bundle["ppo_state"]["buffer_state_by_uid"].items():
         PPO.validate_serialized_buffer_payload(int(uid), payload)
@@ -385,3 +391,4 @@ def validate_checkpoint_artifacts(path: str | Path) -> dict:
     bundle = torch.load(path, map_location="cpu", weights_only=False)
     validate_runtime_checkpoint(bundle, cfg, manifest=manifest)
     return manifest
+

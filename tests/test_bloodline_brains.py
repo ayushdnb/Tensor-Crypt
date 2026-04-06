@@ -104,3 +104,35 @@ def test_viewer_color_mapping_and_inspector_family_label(runtime_builder):
 
     assert base_color == tuple(cfg.BRAIN.FAMILY_COLORS[family_id])
     assert f"Bloodline: {family_id}" in joined
+
+
+def test_brain_rejects_canonical_shape_mismatch_with_clear_error():
+    brain = create_brain().to("cpu")
+    bad_obs = {
+        "canonical_rays": torch.zeros(2, cfg.PERCEPT.NUM_RAYS, cfg.PERCEPT.CANONICAL_RAY_FEATURES - 1),
+        "canonical_self": torch.zeros(2, cfg.PERCEPT.CANONICAL_SELF_FEATURES),
+        "canonical_context": torch.zeros(2, cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES),
+    }
+
+    try:
+        brain(bad_obs)
+    except ValueError as exc:
+        assert "canonical_rays" in str(exc)
+    else:
+        raise AssertionError("Brain forward accepted a canonical observation with the wrong ray feature width")
+
+
+def test_brain_rejects_canonical_batch_size_mismatch():
+    brain = create_brain().to("cpu")
+    bad_obs = {
+        "canonical_rays": torch.zeros(2, cfg.PERCEPT.NUM_RAYS, cfg.PERCEPT.CANONICAL_RAY_FEATURES),
+        "canonical_self": torch.zeros(1, cfg.PERCEPT.CANONICAL_SELF_FEATURES),
+        "canonical_context": torch.zeros(2, cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES),
+    }
+
+    try:
+        brain(bad_obs)
+    except ValueError as exc:
+        assert "batch" in str(exc).lower()
+    else:
+        raise AssertionError("Brain forward accepted canonical observations with mismatched batch sizes")

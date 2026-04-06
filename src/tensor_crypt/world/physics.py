@@ -126,6 +126,8 @@ class Physics:
             return stats
 
         intents = []
+        intent_by_idx = {}
+        start_occupancy = {}
         for idx in alive_indices:
             idx_int = int(idx.item())
             action = int(actions[idx_int].item())
@@ -135,9 +137,13 @@ class Physics:
             tx, ty = x + dx, y + dy
             tx = max(0, min(tx, self.grid.W - 1))
             ty = max(0, min(ty, self.grid.H - 1))
-            intents.append({"idx": idx_int, "action": action, "x": x, "y": y, "tx": tx, "ty": ty})
+            intent = {"idx": idx_int, "action": action, "x": x, "y": y, "tx": tx, "ty": ty}
+            intents.append(intent)
+            intent_by_idx[idx_int] = intent
+            start_occupancy[(x, y)] = idx_int
 
         non_movers = set()
+        contenders_by_cell = {}
 
         for intent in intents:
             idx = intent["idx"]
@@ -153,50 +159,80 @@ class Physics:
                 non_movers.add(idx)
                 continue
 
-            target_agent = self.grid.get_agent_at(tx, ty)
+            target_agent = start_occupancy.get((tx, ty), -1)
             if target_agent >= 0 and target_agent != idx:
-                target_intent = next((candidate for candidate in intents if candidate["idx"] == target_agent), None)
-                if target_intent and target_intent["action"] == 0:
+                target_intent = intent_by_idx.get(target_agent)
+                if target_intent is None or target_intent["action"] == 0:
                     self._handle_ram(idx, target_agent)
                     stats["rams"] += 1
                     non_movers.add(idx)
                     continue
 
-        move_approved = {}
+            contenders_by_cell.setdefault((tx, ty), []).append(idx)
 
-        for intent in intents:
-            idx = intent["idx"]
-            tx, ty = intent["tx"], intent["ty"]
-
-            if idx in non_movers:
+        proposed_moves = {}
+        for (tx, ty), contenders in contenders_by_cell.items():
+            active_contenders = [idx for idx in contenders if idx not in non_movers]
+            if not active_contenders:
                 continue
+            if len(active_contenders) == 1:
+                proposed_moves[active_contenders[0]] = (tx, ty)
+            else:
+                winner = self._resolve_contest(active_contenders)
+                stats["contests"] += 1
+                proposed_moves[winner] = (tx, ty)
+                for idx in active_contenders:
+                    if idx != winner:
+                        non_movers.add(idx)
 
-            target_agent = self.grid.get_agent_at(tx, ty)
-            if target_agent >= 0 and target_agent in non_movers:
+        resolution_cache = {}
+        visiting = set()
+
+        def can_move(idx: int) -> bool:
+            if idx in resolution_cache:
+                return resolution_cache[idx]
+            if idx in visiting:
+                return True
+
+            visiting.add(idx)
+            tx, ty = proposed_moves[idx]
+            occupant = start_occupancy.get((tx, ty), -1)
+            if occupant == -1 or occupant == idx:
+                result = True
+            elif occupant in non_movers or occupant not in proposed_moves:
+                result = False
+            else:
+                result = can_move(occupant)
+            visiting.remove(idx)
+            resolution_cache[idx] = result
+            return result
+
+        successful_moves = sorted(idx for idx in proposed_moves if can_move(idx))
+        successful_set = set(successful_moves)
+        blocked_moves = sorted(idx for idx in proposed_moves if idx not in successful_set)
+
+        for idx in blocked_moves:
+            tx, ty = proposed_moves[idx]
+            target_agent = start_occupancy.get((tx, ty), -1)
+            if target_agent >= 0 and target_agent != idx:
                 self._handle_ram(idx, target_agent)
                 stats["rams"] += 1
                 non_movers.add(idx)
-                continue
 
-            move_approved.setdefault((tx, ty), []).append(idx)
+        for idx in successful_moves:
+            old_x = int(self.registry.data[self.registry.X, idx].item())
+            old_y = int(self.registry.data[self.registry.Y, idx].item())
+            self.grid.clear_cell(old_x, old_y)
 
-        for (tx, ty), contenders in move_approved.items():
-            if len(contenders) == 1:
-                idx = contenders[0]
-                target_agent = self.grid.get_agent_at(tx, ty)
-                if target_agent < 0:
-                    self._approve_move(idx, tx, ty)
-                else:
-                    self._handle_ram(idx, target_agent)
-                    stats["rams"] += 1
-                    non_movers.add(idx)
-            else:
-                winner = self._resolve_contest(contenders)
-                self._approve_move(winner, tx, ty)
-                stats["contests"] += 1
-                for idx in contenders:
-                    if idx != winner:
-                        non_movers.add(idx)
+        for idx in successful_moves:
+            tx, ty = proposed_moves[idx]
+            self.registry.data[self.registry.X, idx] = float(tx)
+            self.registry.data[self.registry.Y, idx] = float(ty)
+
+        for idx in successful_moves:
+            tx, ty = proposed_moves[idx]
+            mass = self.registry.data[self.registry.MASS, idx].item()
+            self.grid.set_cell(tx, ty, idx, mass)
 
         return stats
 
@@ -332,6 +368,7 @@ class Physics:
                     idx_int,
                     death_reason="poison_zone",
                     catastrophe_id=self._active_catastrophe_id(),
+                    zone_id=self.grid.find_hzone_at(x, y),
                 )
 
             metab = self.registry.data[self.registry.METABOLISM_RATE, idx_int]
@@ -386,3 +423,4 @@ class Physics:
                 },
             )
         )
+

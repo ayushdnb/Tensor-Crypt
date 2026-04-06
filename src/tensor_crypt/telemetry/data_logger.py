@@ -63,7 +63,22 @@ class DataLogger:
         self.birth_schema: Optional[pa.Schema] = None
         self.genealogy_schema: Optional[pa.Schema] = None
         self.life_schema: Optional[pa.Schema] = None
-        self.death_schema: Optional[pa.Schema] = None
+        self.death_schema: Optional[pa.Schema] = pa.schema(
+            [
+                pa.field("agent_uid", pa.int64()),
+                pa.field("tick", pa.int64()),
+                pa.field("death_reason", pa.string()),
+                pa.field("catastrophe_id", pa.int64()),
+                pa.field("killing_agent_uid", pa.int64()),
+                pa.field("zone_id", pa.int64()),
+                pa.field("position_x", pa.int64()),
+                pa.field("position_y", pa.int64()),
+                pa.field("final_hp", pa.float64()),
+                pa.field("family", pa.string()),
+                pa.field("lineage_depth", pa.int64()),
+                pa.field("telemetry_schema_version", pa.int64()),
+            ]
+        )
         self.collisions_schema: Optional[pa.Schema] = None
         self.ppo_schema: Optional[pa.Schema] = None
         self.tick_summary_schema: Optional[pa.Schema] = None
@@ -87,6 +102,7 @@ class DataLogger:
     def _write_parquet(self, df: pd.DataFrame, path: Path, writer_attr: str, schema_attr: str):
         writer = getattr(self, writer_attr)
         schema = getattr(self, schema_attr)
+        df = self._align_dataframe_to_schema(df.copy(), schema)
         table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
         if writer is None:
             setattr(self, schema_attr, table.schema)
@@ -699,3 +715,4 @@ class DataLogger:
                 writer.close()
 
         self._closed = True
+

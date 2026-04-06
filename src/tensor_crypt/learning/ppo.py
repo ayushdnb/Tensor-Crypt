@@ -116,6 +116,28 @@ class _AgentBuffer:
         if self.bootstrap_obs is None and self.bootstrap_done is not None and float(self.bootstrap_done.item()) < 0.5:
             raise ValueError("Active bootstrap buffer state is missing bootstrap observation payload")
 
+        for obs_idx, obs in enumerate(self.observations):
+            for key, value in obs.items():
+                if not torch.isfinite(value).all():
+                    raise ValueError(f"UID-owned PPO buffer contains non-finite observation tensor '{key}' at index {obs_idx}")
+        for field_name, values in (
+            ("actions", self.actions),
+            ("log_probs", self.log_probs),
+            ("rewards", self.rewards),
+            ("values", self.values),
+            ("dones", self.dones),
+        ):
+            for value_idx, value in enumerate(values):
+                if not torch.isfinite(value).all():
+                    raise ValueError(f"UID-owned PPO buffer contains non-finite {field_name} tensor at index {value_idx}")
+
+        if self.bootstrap_obs is not None:
+            for key, value in self.bootstrap_obs.items():
+                if not torch.isfinite(value).all():
+                    raise ValueError(f"UID-owned PPO buffer contains non-finite bootstrap observation tensor '{key}'")
+        if self.bootstrap_done is not None and not torch.isfinite(self.bootstrap_done).all():
+            raise ValueError("UID-owned PPO buffer contains non-finite bootstrap_done state")
+
     def store_transition(
         self,
         obs: dict,
@@ -407,6 +429,10 @@ class PPO:
         keys = obs_list[0].keys()
         return {key: torch.stack([obs[key] for obs in obs_list]).to(cfg.SIM.DEVICE) for key in keys}
 
+    @staticmethod
+    def _approx_kl(old_log_probs: torch.Tensor, new_log_probs: torch.Tensor) -> torch.Tensor:
+        return (old_log_probs - new_log_probs).mean()
+
     def _compute_returns_and_advantages(
         self,
         rewards: List[torch.Tensor],
@@ -633,7 +659,7 @@ class PPO:
 
                     optimizer_steps_this_update += 1
                     grad_norm = float(grad_norm_tensor.detach().item()) if torch.is_tensor(grad_norm_tensor) else float(grad_norm_tensor)
-                    kl_div = float(log_ratio.mean().detach().item())
+                    kl_div = float(self._approx_kl(mb_log_probs, new_log_probs).detach().item())
 
                     if cfg.PPO.TARGET_KL > 0 and kl_div > cfg.PPO.TARGET_KL:
                         break
@@ -675,3 +701,4 @@ class PPO:
 
     def should_update(self, tick: int) -> bool:
         return tick > 0 and tick % cfg.PPO.UPDATE_EVERY_N_TICKS == 0
+

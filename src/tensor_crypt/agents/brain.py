@@ -72,6 +72,50 @@ def _empty_canonical_batch(device: torch.device, batch_size: int, dtype: torch.d
     return rays, self_features, context
 
 
+def _validate_canonical_observation_tensors(
+    canonical_rays: torch.Tensor,
+    canonical_self: torch.Tensor,
+    canonical_context: torch.Tensor,
+) -> None:
+    expected_rays_shape = (cfg.PERCEPT.NUM_RAYS, cfg.PERCEPT.CANONICAL_RAY_FEATURES)
+    if canonical_rays.dim() != 3 or tuple(canonical_rays.shape[1:]) != expected_rays_shape:
+        raise ValueError(
+            f"canonical_rays shape mismatch: expected (batch, {expected_rays_shape[0]}, {expected_rays_shape[1]}), got {tuple(canonical_rays.shape)}"
+        )
+    if canonical_self.dim() != 2 or canonical_self.shape[1] != cfg.PERCEPT.CANONICAL_SELF_FEATURES:
+        raise ValueError(
+            f"canonical_self shape mismatch: expected (batch, {cfg.PERCEPT.CANONICAL_SELF_FEATURES}), got {tuple(canonical_self.shape)}"
+        )
+    if canonical_context.dim() != 2 or canonical_context.shape[1] != cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES:
+        raise ValueError(
+            f"canonical_context shape mismatch: expected (batch, {cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES}), got {tuple(canonical_context.shape)}"
+        )
+
+    batch_size = canonical_rays.shape[0]
+    if canonical_self.shape[0] != batch_size or canonical_context.shape[0] != batch_size:
+        raise ValueError(
+            "Canonical observation batch mismatch: canonical_rays, canonical_self, and canonical_context must share the same batch dimension"
+        )
+
+
+def _validate_legacy_observation_tensors(
+    rays: torch.Tensor,
+    state: torch.Tensor,
+    genome: torch.Tensor,
+    position: torch.Tensor,
+    context: torch.Tensor,
+) -> None:
+    if rays.dim() != 3:
+        raise ValueError(f"Legacy observation rays must be rank 3, got shape {tuple(rays.shape)}")
+    for name, tensor in (("state", state), ("genome", genome), ("position", position), ("context", context)):
+        if tensor.dim() != 2:
+            raise ValueError(f"Legacy observation {name} must be rank 2, got shape {tuple(tensor.shape)}")
+
+    batch_size = rays.shape[0]
+    if any(tensor.shape[0] != batch_size for tensor in (state, genome, position, context)):
+        raise ValueError("Legacy observation batch mismatch across rays/state/genome/position/context")
+
+
 def _adapt_legacy_observation_to_canonical(obs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     missing = [key for key in _LEGACY_KEYS if key not in obs]
     if missing:
@@ -82,6 +126,8 @@ def _adapt_legacy_observation_to_canonical(obs: dict) -> tuple[torch.Tensor, tor
     genome = obs["genome"]
     position = obs["position"]
     context = obs["context"]
+
+    _validate_legacy_observation_tensors(rays, state, genome, position, context)
 
     batch_size = rays.shape[0]
     device = rays.device
@@ -130,10 +176,14 @@ def _adapt_legacy_observation_to_canonical(obs: dict) -> tuple[torch.Tensor, tor
 
 def extract_canonical_observation(obs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if all(key in obs for key in _CANONICAL_RAY_KEYS):
-        return obs["canonical_rays"], obs["canonical_self"], obs["canonical_context"]
-    if not cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK:
-        raise KeyError("Bloodline MLP brain requires Prompt 2 canonical observations")
-    return _adapt_legacy_observation_to_canonical(obs)
+        canonical = (obs["canonical_rays"], obs["canonical_self"], obs["canonical_context"])
+    else:
+        if not cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK:
+            raise KeyError("Bloodline MLP brain requires Prompt 2 canonical observations")
+        canonical = _adapt_legacy_observation_to_canonical(obs)
+
+    _validate_canonical_observation_tensors(*canonical)
+    return canonical
 
 
 @dataclass(frozen=True)

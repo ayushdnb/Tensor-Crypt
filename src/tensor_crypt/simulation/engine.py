@@ -217,9 +217,9 @@ class Engine:
         self.physics.apply_environment_effects()
         self.logger.note_catastrophe_exposure(self.registry, catastrophe_state)
 
-        current_hp = self.registry.data[self.registry.HP, alive_indices]
-        max_hp = self.registry.data[self.registry.HP_MAX, alive_indices]
-        rewards = (current_hp / (max_hp + 1e-6)) ** 2
+        current_hp = self.registry.data[self.registry.HP, alive_indices].clamp_min(0.0)
+        max_hp = self.registry.data[self.registry.HP_MAX, alive_indices].clamp_min(1e-6)
+        rewards = torch.clamp(current_hp / max_hp, 0.0, 1.0) ** 2
 
         deaths = self.physics.process_deaths()
         dones = (self.registry.data[self.registry.ALIVE, alive_indices] == 0.0).float()
@@ -261,3 +261,4 @@ class Engine:
         self._maybe_run_ppo_update()
         self._maybe_save_snapshots()
         self._maybe_print_tick_progress()
+

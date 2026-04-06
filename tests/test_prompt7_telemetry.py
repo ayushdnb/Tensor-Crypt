@@ -49,6 +49,50 @@ def test_prompt7_death_finalization_emits_taxonomy_and_life_row(runtime_builder)
     assert int(life_row["death_slot"]) == slot_idx
     assert int(life_row["age_at_death"]) >= 0
 
+
+def test_prompt7_death_ledger_handles_null_then_non_null_killer_uid(runtime_builder):
+    runtime = runtime_builder(seed=16, agents=4, walls=0, hzones=0)
+    alive_slots = [int(slot.item()) for slot in runtime.registry.get_alive_indices()]
+    first_slot, second_slot, killer_slot = alive_slots[:3]
+    killer_uid = runtime.registry.get_uid_for_slot(killer_slot)
+
+    def _finalize(slot_idx: int, death_context: dict) -> None:
+        runtime.registry.data[runtime.registry.HP, slot_idx] = 0.0
+        runtime.registry.mark_dead(slot_idx, runtime.grid)
+        runtime.data_logger.finalize_death(
+            tick=runtime.engine.tick,
+            slot_idx=slot_idx,
+            registry=runtime.registry,
+            ppo=runtime.ppo,
+            death_context=death_context,
+        )
+        runtime.evolution.process_deaths([slot_idx], runtime.ppo, death_tick=runtime.engine.tick)
+
+    _finalize(
+        first_slot,
+        {
+            "death_reason": "wall_collision",
+            "catastrophe_id": None,
+            "zone_id": None,
+            "killing_agent_uid": None,
+        },
+    )
+    _finalize(
+        second_slot,
+        {
+            "death_reason": "contest_damage",
+            "catastrophe_id": None,
+            "zone_id": None,
+            "killing_agent_uid": killer_uid,
+        },
+    )
+    runtime.data_logger.close(runtime.registry)
+
+    death_df = pd.read_parquet(runtime.data_logger.death_ledger_path)
+
+    assert death_df["killing_agent_uid"].isna().sum() == 1
+    assert set(death_df["killing_agent_uid"].dropna().astype(int).tolist()) == {killer_uid}
+
 def test_prompt7_lineage_export_contains_parent_role_edges(runtime_builder):
     runtime = runtime_builder(seed=13, agents=6, walls=0, hzones=0)
     runtime.engine.step()
@@ -83,3 +127,4 @@ def test_prompt7_viewer_trait_surface_matches_trait_latent(runtime_builder):
 
     assert set(baseline.keys()) == {"budget", "z_hp", "z_mass", "z_vision", "z_metab"}
     assert {"budget", "alloc_hp", "alloc_mass", "alloc_vision", "alloc_metab"} <= set(mapped.keys())
+

@@ -167,19 +167,18 @@ class Perception:
         effective_vision_ranges = self.get_effective_vision_values(alive_indices)
         canonical_rays = self.cast_rays_batched(positions, effective_vision_ranges, alive_indices)
 
-        obs = build_observation_bundle(
-            registry=self.registry,
-            grid=self.grid,
-            alive_indices=alive_indices,
-            canonical_rays=canonical_rays,
-        )
-
-        # Prompt 6 fog must affect the intended perception pathway without
-        # mutating the underlying inherited vision trait in registry storage.
+        # Prompt 6 fog must affect whichever observation surface is exported
+        # without mutating the inherited trait tensor stored in the registry.
         vision_norm = normalize_from_bounds(
             effective_vision_ranges,
             cfg.TRAITS.CLAMP.vision[0],
             cfg.TRAITS.CLAMP.vision[1],
         )
-        obs["canonical_self"][:, 4] = vision_norm
-        return obs
+        return build_observation_bundle(
+            registry=self.registry,
+            grid=self.grid,
+            alive_indices=alive_indices,
+            canonical_rays=canonical_rays,
+            vision_norm_override=vision_norm,
+        )
+
