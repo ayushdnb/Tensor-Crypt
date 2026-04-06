@@ -11,20 +11,8 @@ from ..config_bridge import cfg
 
 
 class DataLogger:
-    """
-    Manages simulation artifacts.
-
-    Storage contract:
-    - HDF5 for large tensor snapshots
-    - Parquet for append-only event streams
-
-    Schema caching is preserved because collision and genealogy payloads contain
-    list-valued fields whose inferred schema must stay stable across writes.
-    """
-
     def __init__(self, run_dir: str):
         self.run_dir = Path(run_dir)
-
         self.hdf_path = self.run_dir / "simulation_data.hdf5"
         self.h5_file = h5py.File(str(self.hdf_path), "w")
         self.h5_snapshots = self.h5_file.create_group("agent_snapshots")
@@ -42,38 +30,21 @@ class DataLogger:
         self.tick_summary_writer: Optional[pq.ParquetWriter] = None
 
         self.genealogy_schema: Optional[pa.Schema] = None
-        self.collisions_schema: Optional[pa.Schema] = pa.schema(
-            [
-                ("kind", pa.string()),
-                ("a", pa.int64()),
-                ("b", pa.int64()),
-                ("damage", pa.float64()),
-                ("damage_a", pa.float64()),
-                ("damage_b", pa.float64()),
-                ("contenders", pa.list_(pa.int64())),
-                ("winner", pa.int64()),
-                ("tick", pa.int64()),
-            ]
-        )
+        self.collisions_schema: Optional[pa.Schema] = None
         self.ppo_schema: Optional[pa.Schema] = None
         self.tick_summary_schema: Optional[pa.Schema] = None
 
     def _write_parquet(self, df: pd.DataFrame, path: Path, writer_attr: str, schema_attr: str):
         writer = getattr(self, writer_attr)
         schema = getattr(self, schema_attr)
-
-        try:
-            table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
-            if writer is None:
-                setattr(self, schema_attr, table.schema)
-                writer = pq.ParquetWriter(str(path), table.schema, compression="gzip")
-                setattr(self, writer_attr, writer)
-            writer.write_table(table)
-        except Exception as error:
-            print(f"Error writing to Parquet file {path}: {error}")
+        table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
+        if writer is None:
+            setattr(self, schema_attr, table.schema)
+            writer = pq.ParquetWriter(str(path), table.schema, compression="gzip")
+            setattr(self, writer_attr, writer)
+        writer.write_table(table)
 
     def close(self):
-        print(f"Closing log files in {self.run_dir}...")
         self.h5_file.close()
         if self.genealogy_writer:
             self.genealogy_writer.close()
@@ -83,7 +54,6 @@ class DataLogger:
             self.ppo_writer.close()
         if self.tick_summary_writer:
             self.tick_summary_writer.close()
-        print("Log files closed.")
 
     def _schema_versions(self) -> dict:
         return {
@@ -96,65 +66,83 @@ class DataLogger:
         }
 
     def log_agent_snapshot(self, tick: int, registry):
-        data_np = registry.data.cpu().numpy()
-        self.h5_snapshots.create_dataset(f"tick_{tick}", data=data_np, compression="gzip")
+        self.h5_snapshots.create_dataset(f"tick_{tick}", data=registry.data.cpu().numpy(), compression="gzip")
         self.h5_identity.create_dataset(f"slot_uid_tick_{tick}", data=registry.slot_uid.cpu().numpy(), compression="gzip")
-        self.h5_identity.create_dataset(
-            f"slot_parent_uid_tick_{tick}",
-            data=registry.slot_parent_uid.cpu().numpy(),
-            compression="gzip",
-        )
+        self.h5_identity.create_dataset(f"slot_parent_uid_tick_{tick}", data=registry.slot_parent_uid.cpu().numpy(), compression="gzip")
 
     def log_heatmap_snapshot(self, tick: int, grid):
-        density_np = grid.grid[2].cpu().numpy()
-        self.h5_heatmaps.create_dataset(f"density_tick_{tick}", data=density_np, compression="gzip")
-
-        mass_np = grid.grid[3].cpu().numpy()
-        self.h5_heatmaps.create_dataset(f"mass_tick_{tick}", data=mass_np, compression="gzip")
+        self.h5_heatmaps.create_dataset(f"density_tick_{tick}", data=grid.grid[2].cpu().numpy(), compression="gzip")
+        self.h5_heatmaps.create_dataset(f"mass_tick_{tick}", data=grid.grid[3].cpu().numpy(), compression="gzip")
 
     def log_brains(self, tick: int, registry):
         by_uid = {}
         uid_to_slot = {}
+        family_by_uid = {}
         for uid, slot_idx in sorted(registry.active_uid_to_slot.items()):
             brain = registry.brains[slot_idx]
             if brain is None:
                 continue
             by_uid[uid] = brain.state_dict()
             uid_to_slot[uid] = slot_idx
+            family_by_uid[uid] = registry.get_family_for_uid(uid)
+        payload = {"by_uid": by_uid, "uid_to_slot": uid_to_slot, "family_by_uid": family_by_uid, "tick": tick, "schema_versions": self._schema_versions()}
+        torch.save(payload, str(self.run_dir / "brains" / f"brains_tick_{tick}.pt"))
 
+    def log_spawn_event(
+        self,
+        *,
+        tick: int,
+        child_slot: int,
+        brain_parent_slot: int,
+        trait_parent_slot: int,
+        anchor_parent_slot: int,
+        child_uid: int,
+        brain_parent_uid: int,
+        trait_parent_uid: int,
+        anchor_parent_uid: int,
+        child_family: str | None,
+        brain_parent_family: str | None,
+        trait_parent_family: str | None,
+        traits: dict,
+        trait_latent: dict,
+        mutation_flags: dict,
+        placement: dict,
+        floor_recovery: bool,
+    ):
         payload = {
-            "by_uid": by_uid,
-            "uid_to_slot": uid_to_slot,
-            "tick": tick,
-            "schema_versions": self._schema_versions(),
-        }
-        brain_path = self.run_dir / "brains" / f"brains_tick_{tick}.pt"
-        torch.save(payload, str(brain_path))
-
-    def log_spawn_event(self, tick: int, child_slot: int, parent_slot: int, child_uid: int, parent_uid: int, traits: dict):
-        event_data = {
             "tick": tick,
             "child_slot": child_slot,
-            "parent_slot": parent_slot,
+            "parent_slot": brain_parent_slot,
+            "brain_parent_slot": brain_parent_slot,
+            "trait_parent_slot": trait_parent_slot,
+            "anchor_parent_slot": anchor_parent_slot,
+            "child_uid": child_uid,
+            "parent_uid": brain_parent_uid,
+            "brain_parent_uid": brain_parent_uid,
+            "trait_parent_uid": trait_parent_uid,
+            "anchor_parent_uid": anchor_parent_uid,
+            "child_family": child_family,
+            "brain_parent_family": brain_parent_family,
+            "trait_parent_family": trait_parent_family,
+            "floor_recovery": floor_recovery,
             "identity_schema_version": cfg.SCHEMA.IDENTITY_SCHEMA_VERSION,
             "telemetry_schema_version": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
-            **traits,
+            "reproduction_schema_version": cfg.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
+            **{f"trait_{k}": v for k, v in trait_latent.items()},
+            **{f"value_{k}": v for k, v in traits.items()},
+            **{f"mutation_{k}": v for k, v in mutation_flags.items()},
+            **{f"placement_{k}": v for k, v in placement.items()},
         }
         if cfg.MIGRATION.LOG_LEGACY_SLOT_FIELDS:
-            event_data["child_idx"] = child_slot
-            event_data["parent_idx"] = parent_slot
-        if cfg.MIGRATION.LOG_UID_FIELDS:
-            event_data["child_uid"] = child_uid
-            event_data["parent_uid"] = parent_uid
-
-        df = pd.DataFrame([event_data])
+            payload["parent_idx"] = brain_parent_slot
+            payload["child_idx"] = child_slot
+        df = pd.DataFrame([payload])
         self._write_parquet(df, self.genealogy_path, "genealogy_writer", "genealogy_schema")
 
     def log_physics_events(self, tick: int, collision_log: list[dict]):
         if not collision_log:
             return
         df = pd.DataFrame(collision_log)
-        df["contenders"] = df["contenders"].apply(lambda values: [int(v) for v in values])
         df["tick"] = tick
         self._write_parquet(df, self.collisions_path, "collisions_writer", "collisions_schema")
 
@@ -181,5 +169,4 @@ class DataLogger:
                 "total_physics_dmg": registry.data[registry.HP_LOST_PHYSICS, alive_mask].sum().item(),
                 **physics_stats,
             }
-        df = pd.DataFrame([stats])
-        self._write_parquet(df, self.tick_summary_path, "tick_summary_writer", "tick_summary_schema")
+        self._write_parquet(pd.DataFrame([stats]), self.tick_summary_path, "tick_summary_writer", "tick_summary_schema")

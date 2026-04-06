@@ -4,7 +4,7 @@ import pygame
 
 from ..agents.state_registry import Registry
 from ..config_bridge import cfg
-from .colors import COLORS
+from .colors import COLORS, get_bloodline_agent_color, get_bloodline_base_color
 
 
 class WorldRenderer:
@@ -17,7 +17,6 @@ class WorldRenderer:
         self.static_surf = None
 
     def _build_static_cache(self, wrect):
-        """Pre-render non-moving elements like walls and zones."""
         self.static_surf = pygame.Surface(wrect.size)
         self.static_surf.fill(COLORS["empty"])
 
@@ -61,22 +60,19 @@ class WorldRenderer:
         pygame.draw.rect(surf, COLORS["border"], wrect, 2)
 
     def _draw_agents(self, surf, wrect, c, state_data):
-        for slot_id, (x, y, hp, hp_max) in state_data["agent_map"].items():
-            cx, cy = self.cam.world_to_screen(x, y)
-            hp_ratio = hp / (hp_max + 1e-6)
-            color = tuple(
-                int(low * (1.0 - hp_ratio) + high * hp_ratio)
-                for low, high in zip(COLORS["agent_low_hp"], COLORS["agent_high_hp"])
-            )
+        for slot_id, agent in state_data["agent_map"].items():
+            cx, cy = self.cam.world_to_screen(agent["x"], agent["y"])
+            hp_ratio = agent["hp"] / (agent["hp_max"] + 1e-6)
+            color = get_bloodline_agent_color(agent["family_id"], hp_ratio)
             agent_rect = (wrect.x + cx, wrect.y + cy, math.ceil(c), math.ceil(c))
             pygame.draw.rect(surf, color, agent_rect)
 
     def _draw_hp_bars(self, surf, wrect, c, state_data):
         if c < 8:
             return
-        for slot_id, (x, y, hp, hp_max) in state_data["agent_map"].items():
-            hp_ratio = hp / (hp_max + 1e-6)
-            cx, cy = self.cam.world_to_screen(x, y)
+        for slot_id, agent in state_data["agent_map"].items():
+            hp_ratio = agent["hp"] / (agent["hp_max"] + 1e-6)
+            cx, cy = self.cam.world_to_screen(agent["x"], agent["y"])
             bar_w, bar_h = c, max(1, c // 8)
             bar_y = wrect.y + cy - bar_h - 2
             if wrect.y < bar_y < wrect.bottom:
@@ -88,8 +84,8 @@ class WorldRenderer:
     def _draw_selection_markers(self, surf, wrect, c, state_data):
         slot_id = self.viewer.selected_slot_id
         if slot_id is not None and slot_id in state_data["agent_map"]:
-            x, y, _, _ = state_data["agent_map"][slot_id]
-            cx, cy = self.cam.world_to_screen(x, y)
+            agent = state_data["agent_map"][slot_id]
+            cx, cy = self.cam.world_to_screen(agent["x"], agent["y"])
             marker_rect = (wrect.x + cx, wrect.y + cy, math.ceil(c), math.ceil(c))
             pygame.draw.rect(surf, COLORS["selection_marker"], marker_rect, max(1, int(c // 10)))
 
@@ -120,7 +116,9 @@ class WorldRenderer:
         if slot_id not in state_data["agent_map"]:
             return
 
-        agent_x, agent_y, _, _ = state_data["agent_map"][slot_id]
+        agent = state_data["agent_map"][slot_id]
+        agent_x = agent["x"]
+        agent_y = agent["y"]
         start_pos_screen = (
             wrect.x + self.cam.world_to_screen(agent_x, agent_y)[0] + c // 2,
             wrect.y + self.cam.world_to_screen(agent_x, agent_y)[1] + c // 2,
@@ -211,12 +209,17 @@ class SidePanel:
         if slot_id is not None:
             if slot_id not in state_data["agent_map"]:
                 surf.blit(self.text.render(f"UID {self.viewer.last_selected_uid} (Dead)", 13, COLORS["text_warn"]), (x, y))
+                y += self.line_height
             else:
-                y = self._draw_agent_details(surf, x, y, slot_id, state_data)
+                y = self._draw_agent_details(surf, x, y, slot_id)
         elif hzone_id is not None:
             y = self._draw_hzone_details(surf, x, y, hzone_id)
         else:
             surf.blit(self.text.render("Click an agent or H-Zone to inspect.", 13, COLORS["text_dim"]), (x, y))
+            y += self.line_height
+
+        y += 8
+        y = self._draw_bloodline_legend(surf, x, y)
 
         y = srect.bottom - 200
         pygame.draw.line(surf, COLORS["border"], (srect.x, y - 10), (srect.right, y - 10), 2)
@@ -240,6 +243,22 @@ class SidePanel:
             surf.blit(self.text.render(line, 13, COLORS["text_dim"]), (x, y))
             y += 18
 
+    def _draw_bloodline_legend(self, surf, x, y):
+        if not cfg.VIEW.SHOW_BLOODLINE_LEGEND:
+            return y
+
+        surf.blit(self.text.render("Bloodlines", 16, COLORS["text_header"]), (x, y))
+        y += self.line_height
+
+        for family_id in cfg.BRAIN.FAMILY_ORDER:
+            color = get_bloodline_base_color(family_id)
+            pygame.draw.rect(surf, color, (x, y + 3, 12, 12))
+            pygame.draw.rect(surf, COLORS["border"], (x, y + 3, 12, 12), 1)
+            surf.blit(self.text.render(family_id, 13, COLORS["text_dim"]), (x + 20, y))
+            y += 18
+
+        return y + 4
+
     def _draw_hzone_details(self, surf, x, y, hzone_id):
         lh = self.line_height
         zone = self.engine.grid.get_hzone(hzone_id)
@@ -249,7 +268,7 @@ class SidePanel:
             return y + lh
 
         rate = zone["rate"]
-        color = COLORS["text_success"] if rate >= 0 else COLORS["hzone_harm"]
+        color = COLORS["text_success"] if rate >= 0 else COLORS["text_harm"]
 
         surf.blit(self.text.render(f"H-Zone ID: {hzone_id}", 16, color), (x, y))
         y += lh
@@ -273,11 +292,11 @@ class SidePanel:
         y += lh
         return y
 
-    def _draw_agent_details(self, surf, x, y, slot_id, state_data):
-        lh = self.line_height
+    def _agent_detail_lines(self, slot_id: int) -> list[tuple[str, tuple[int, int, int]]]:
         data = self.registry.data[:, slot_id]
         uid = self.registry.get_uid_for_slot(slot_id)
         parent_uid = self.registry.get_parent_uid_for_slot(slot_id)
+        family_id = self.registry.get_family_for_slot(slot_id)
         pos_x = int(data[Registry.X].item())
         pos_y = int(data[Registry.Y].item())
         hp = data[Registry.HP].item()
@@ -300,37 +319,40 @@ class SidePanel:
             except Exception:
                 param_count_str = "Error"
 
-        self.viewer.last_selected_uid = uid
-
+        lines = []
         if cfg.MIGRATION.VIEWER_SHOW_SLOT_AND_UID:
-            surf.blit(self.text.render(f"Slot: {slot_id}", 13, COLORS["text_dim"]), (x, y))
-            y += lh
-        surf.blit(self.text.render(f"UID: {uid}", 16, COLORS["text_success"]), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Parent UID: {parent_uid if parent_uid != -1 else 'N/A'}", 13, COLORS["text_dim"]), (x, y))
-        y += lh
+            lines.append((f"Slot: {slot_id}", COLORS["text_dim"]))
+        lines.append((f"UID: {uid}", COLORS["text_success"]))
+        lines.append((f"Parent UID: {parent_uid if parent_uid != -1 else 'N/A'}", COLORS["text_dim"]))
+        if cfg.MIGRATION.VIEWER_SHOW_BLOODLINE:
+            lines.append((f"Bloodline: {family_id}", get_bloodline_base_color(family_id)))
+        lines.append((f"HP: {hp:.2f} / {hp_max:.2f} ({(hp / (hp_max + 1e-6)) * 100:.0f}%)", COLORS["text_dim"]))
+        lines.append((f"Position: ({pos_x}, {pos_y})", COLORS["text_dim"]))
+        lines.append((f"Mass: {mass:.2f}", COLORS["text_dim"]))
+        lines.append((f"Vision: {vision:.1f}", COLORS["text_dim"]))
+        lines.append((f"Metabolism: {metab:.4f} (HP/tick)", COLORS["text_dim"]))
+        lines.append((f"Fitness (Score): {fitness:.2f}", COLORS["text_dim"]))
+        lines.append((f"Brain Params: {param_count_str}", COLORS["text_dim"]))
+        return lines
 
+    def _draw_agent_details(self, surf, x, y, slot_id):
+        lh = self.line_height
+        lines = self._agent_detail_lines(slot_id)
+
+        self.viewer.last_selected_uid = self.registry.get_uid_for_slot(slot_id)
+        hp = self.registry.data[self.registry.HP, slot_id].item()
+        hp_max = self.registry.data[self.registry.HP_MAX, slot_id].item()
         hp_ratio = hp / (hp_max + 1e-6)
         bar_w = self.viewer.layout.side_rect().width - 2 * 12
+
+        for index, (line, color) in enumerate(lines):
+            surf.blit(self.text.render(line, 13 if index != 1 else 16, color), (x, y))
+            y += lh
+            if line.startswith("Bloodline:"):
+                pygame.draw.rect(surf, color, (x + 250, y - lh + 4, 12, 12))
+                pygame.draw.rect(surf, COLORS["border"], (x + 250, y - lh + 4, 12, 12), 1)
+
         pygame.draw.rect(surf, COLORS["bar_bg"], (x, y, bar_w, 10))
         pygame.draw.rect(surf, COLORS["bar_fg_hp"], (x, y, bar_w * hp_ratio, 10))
-        y += 14
-        surf.blit(self.text.render(f"HP: {hp:.2f} / {hp_max:.2f} ({hp_ratio * 100:.0f}%)", 13, COLORS["text_dim"]), (x, y))
-        y += lh + 5
-
-        surf.blit(self.text.render(f"Position: ({pos_x}, {pos_y})", 13, COLORS["text_dim"]), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Mass: {mass:.2f}", 13, COLORS["text_dim"]), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Vision: {vision:.1f}", 13, COLORS["text_dim"]), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Metabolism: {metab:.4f} (HP/tick)", 13, COLORS["text_dim"]), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Fitness (Score): {fitness:.2f}", 13, COLORS["text_dim"]), (x, y))
-        y += lh
-
-        y += 5
-        surf.blit(self.text.render(f"Brain Params: {param_count_str}", 13, COLORS["text_dim"]), (x, y))
-        y += lh
+        y += 18
         return y
-

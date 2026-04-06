@@ -50,6 +50,36 @@ class RespawnConfig:
     POPULATION_FLOOR: int = 20
     POPULATION_CEILING: int = 150
 
+    # Prompt 5 reproduction control surface.
+    MODE: str = "binary_parented"
+    BRAIN_PARENT_SELECTOR: str = "fitness"
+    TRAIT_PARENT_SELECTOR: str = "vitality"
+    ANCHOR_PARENT_SELECTOR: str = "trait_parent"  # brain_parent | trait_parent | random_parent | fitter_of_two
+
+    BRAIN_PARENT_MIN_FITNESS: float = 0.0
+    TRAIT_PARENT_MIN_HP_RATIO: float = 0.10
+    TRAIT_PARENT_MIN_AGE_TICKS: int = 0
+    FLOOR_RECOVERY_SUSPEND_THRESHOLDS: bool = True
+    FLOOR_RECOVERY_REQUIRE_TWO_PARENTS: bool = True
+
+    EXTINCTION_POLICY: str = "fail_run"  # fail_run | seed_bank_bootstrap | admin_spawn_defaults
+    EXTINCTION_BOOTSTRAP_SPAWNS: int = 2
+    EXTINCTION_BOOTSTRAP_FAMILY: str = "House Nocthar"
+
+    OFFSPRING_JITTER_RADIUS_MIN: int = 1
+    OFFSPRING_JITTER_RADIUS_MAX: int = 4
+    OFFSPRING_MAX_PLACEMENT_ATTEMPTS: int = 32
+    ALLOW_FALLBACK_GLOBAL_PLACEMENT: bool = True
+    DISALLOW_SPAWN_ON_WALL: bool = True
+    DISALLOW_SPAWN_ON_OCCUPIED: bool = True
+    DISALLOW_SPAWN_IN_HARM_ZONE: bool = True
+
+    BIRTH_HP_MODE: str = "full"  # full | fraction
+    BIRTH_HP_FRACTION: float = 1.0
+
+    LOG_PLACEMENT_FAILURES: bool = True
+    ASSERT_BINARY_PARENTING: bool = True
+
 
 @dataclass
 class TraitInit:
@@ -68,9 +98,18 @@ class TraitClamp:
 
 
 @dataclass
+class TraitBudgetConfig:
+    INIT_BUDGET: float = 1.0
+    INIT_LOGITS: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    MIN_BUDGET: float = 0.25
+    MAX_BUDGET: float = 1.75
+
+
+@dataclass
 class TraitsConfig:
     INIT: TraitInit = field(default_factory=TraitInit)
     CLAMP: TraitClamp = field(default_factory=TraitClamp)
+    BUDGET: TraitBudgetConfig = field(default_factory=TraitBudgetConfig)
     METAB_FORM: str = "affine_combo"  # constant | affine_combo
     METAB_COEFFS: Dict[str, float] = field(
         default_factory=lambda: {
@@ -95,16 +134,13 @@ class PhysicsConfig:
 @dataclass
 class PerceptionConfig:
     NUM_RAYS: int = 32
-    RAY_FIELD_AGG: str = "max_abs"  # max_abs | max_pos_neg | mean | integral_kstep
-    RAY_STEP_SAMPLER: str = "dda_first_hit"  # dda_first_hit | fixed_steps
+    RAY_FIELD_AGG: str = "max_abs"
+    RAY_STEP_SAMPLER: str = "dda_first_hit"
 
-    # Prompt 2 canonical observation contract.
     CANONICAL_RAY_FEATURES: int = 8
     CANONICAL_SELF_FEATURES: int = 11
     CANONICAL_CONTEXT_FEATURES: int = 3
 
-    # Transitional Prompt 2 bridge. Prompt 3 brains no longer consume these
-    # fields, but the emission path remains available for narrow compatibility.
     LEGACY_RAY_FEATURES: int = 5
     LEGACY_STATE_FEATURES: int = 2
     LEGACY_GENOME_FEATURES: int = 4
@@ -120,8 +156,8 @@ class PerceptionConfig:
 @dataclass
 class BloodlineFamilySpec:
     hidden_widths: List[int] = field(default_factory=lambda: [256, 256, 192])
-    activation: str = "gelu"  # relu | gelu | silu | tanh
-    normalization: str = "pre"  # pre | post | none
+    activation: str = "gelu"
+    normalization: str = "pre"
     residual: bool = True
     gated: bool = False
     split_inputs: bool = False
@@ -145,7 +181,7 @@ class BrainConfig:
         ]
     )
     DEFAULT_FAMILY: str = "House Nocthar"
-    INITIAL_FAMILY_ASSIGNMENT: str = "round_robin"  # round_robin | weighted_random
+    INITIAL_FAMILY_ASSIGNMENT: str = "round_robin"
     INITIAL_FAMILY_WEIGHTS: Dict[str, float] = field(
         default_factory=lambda: {
             "House Nocthar": 1.0,
@@ -171,55 +207,11 @@ class BrainConfig:
 
     FAMILY_SPECS: Dict[str, BloodlineFamilySpec] = field(
         default_factory=lambda: {
-            "House Nocthar": BloodlineFamilySpec(
-                hidden_widths=[256, 256, 224, 192],
-                activation="gelu",
-                normalization="pre",
-                residual=True,
-                gated=False,
-                split_inputs=False,
-                dropout=0.00,
-            ),
-            "House Vespera": BloodlineFamilySpec(
-                hidden_widths=[160, 160, 160, 128, 128],
-                activation="silu",
-                normalization="pre",
-                residual=True,
-                gated=False,
-                split_inputs=False,
-                dropout=0.00,
-            ),
-            "House Umbrael": BloodlineFamilySpec(
-                hidden_widths=[320, 320, 224],
-                activation="relu",
-                normalization="post",
-                residual=True,
-                gated=False,
-                split_inputs=False,
-                dropout=0.00,
-            ),
-            "House Mourndveil": BloodlineFamilySpec(
-                hidden_widths=[224, 224, 192],
-                activation="silu",
-                normalization="pre",
-                residual=True,
-                gated=True,
-                split_inputs=True,
-                split_ray_width=160,
-                split_scalar_width=96,
-                dropout=0.00,
-            ),
-            "House Somnyr": BloodlineFamilySpec(
-                hidden_widths=[256, 256, 256, 224, 192],
-                activation="gelu",
-                normalization="pre",
-                residual=True,
-                gated=True,
-                split_inputs=True,
-                split_ray_width=192,
-                split_scalar_width=128,
-                dropout=0.02,
-            ),
+            "House Nocthar": BloodlineFamilySpec(hidden_widths=[256, 256, 224, 192], activation="gelu", normalization="pre", residual=True, gated=False, split_inputs=False, dropout=0.00),
+            "House Vespera": BloodlineFamilySpec(hidden_widths=[160, 160, 160, 128, 128], activation="silu", normalization="pre", residual=True, gated=False, split_inputs=False, dropout=0.00),
+            "House Umbrael": BloodlineFamilySpec(hidden_widths=[320, 320, 224], activation="relu", normalization="post", residual=True, gated=False, split_inputs=False, dropout=0.00),
+            "House Mourndveil": BloodlineFamilySpec(hidden_widths=[224, 224, 192], activation="silu", normalization="pre", residual=True, gated=True, split_inputs=True, split_ray_width=160, split_scalar_width=96, dropout=0.00),
+            "House Somnyr": BloodlineFamilySpec(hidden_widths=[256, 256, 256, 224, 192], activation="gelu", normalization="pre", residual=True, gated=True, split_inputs=True, split_ray_width=192, split_scalar_width=128, dropout=0.02),
         }
     )
 
@@ -237,10 +229,9 @@ class PPOConfig:
     EPOCHS: int = 4
     TARGET_KL: float = 0.01
     GRAD_NORM_CLIP: float = 1.0
-    REWARD_FORM: str = "sq_health_ratio"  # sq_health_ratio | health_ratio | raw_health
+    REWARD_FORM: str = "sq_health_ratio"
     UPDATE_EVERY_N_TICKS: int = 256
 
-    # Prompt 4 UID-owned training-state hardening.
     OWNERSHIP_MODE: str = "uid_strict"
     BUFFER_SCHEMA_VERSION: int = 1
     TRACK_TRAINING_STATE: bool = True
@@ -253,26 +244,21 @@ class PPOConfig:
 
 @dataclass
 class EvolutionConfig:
-    SELECTION: str = "softmax_fitness"  # softmax_fitness | rank
+    SELECTION: str = "softmax_fitness"
     FITNESS_DECAY: float = 0.99
-    GENOME_NOISE_SD: Dict[str, float] = field(
-        default_factory=lambda: {
-            "mass": 0.05,
-            "vision": 0.5,
-            "hp_max": 0.5,
-            "metab": 0.01,
-        }
-    )
-    RARE_MUT_PROB: float = 0.0005
-    RARE_MUT_SIGMA: float = 1.0
-    TRAIT_COUPLING: Dict[str, float] = field(
-        default_factory=lambda: {
-            "mass_to_metab": 0.01,
-            "vision_to_metab": 0.002,
-        }
-    )
     POLICY_NOISE_SD: float = 0.01
     FITNESS_TEMP: float = 1.0
+
+    # Prompt 5 mutation knobs.
+    TRAIT_LOGIT_MUTATION_SIGMA: float = 0.12
+    TRAIT_BUDGET_MUTATION_SIGMA: float = 0.05
+    RARE_MUT_PROB: float = 0.0005
+    RARE_TRAIT_LOGIT_MUTATION_SIGMA: float = 0.40
+    RARE_TRAIT_BUDGET_MUTATION_SIGMA: float = 0.15
+    RARE_POLICY_NOISE_SD: float = 0.03
+
+    ENABLE_FAMILY_SHIFT_MUTATION: bool = False
+    FAMILY_SHIFT_PROB: float = 0.0001
 
 
 @dataclass
@@ -280,13 +266,7 @@ class ViewerConfig:
     FPS: int = 30
     PAINT_BRUSH: List[int] = field(default_factory=lambda: [3, 3])
     PAINT_RATE_STEP: float = 0.05
-    SHOW_OVERLAYS: Dict[str, bool] = field(
-        default_factory=lambda: {
-            "h_rate": True,
-            "h_grad": False,
-            "rays": False,
-        }
-    )
+    SHOW_OVERLAYS: Dict[str, bool] = field(default_factory=lambda: {"h_rate": True, "h_grad": False, "rays": False})
     WINDOW_WIDTH: int = 800
     WINDOW_HEIGHT: int = 800
     CELL_SIZE: int = 10
@@ -318,10 +298,10 @@ class SchemaConfig:
     IDENTITY_SCHEMA_VERSION: int = 1
     OBS_SCHEMA_VERSION: int = 2
     PPO_STATE_SCHEMA_VERSION: int = 1
-    CHECKPOINT_SCHEMA_VERSION: int = 3
-    REPRODUCTION_SCHEMA_VERSION: int = 1
+    CHECKPOINT_SCHEMA_VERSION: int = 4
+    REPRODUCTION_SCHEMA_VERSION: int = 2
     TELEMETRY_SCHEMA_VERSION: int = 2
-    LOGGING_SCHEMA_VERSION: int = 2
+    LOGGING_SCHEMA_VERSION: int = 3
 
 
 @dataclass

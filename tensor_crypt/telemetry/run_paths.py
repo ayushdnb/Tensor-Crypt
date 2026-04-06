@@ -1,10 +1,4 @@
-"""
-Run-directory creation utilities.
-
-Path handling lives here so launch code does not scatter filesystem policy
-throughout the project. All paths are resolved through `pathlib` to avoid
-machine-specific separator assumptions.
-"""
+"""Run-directory creation utilities."""
 
 from __future__ import annotations
 
@@ -46,6 +40,7 @@ def build_run_metadata() -> dict:
             "log_legacy_slot_fields": cfg.MIGRATION.LOG_LEGACY_SLOT_FIELDS,
             "log_uid_fields": cfg.MIGRATION.LOG_UID_FIELDS,
             "viewer_show_slot_and_uid": cfg.MIGRATION.VIEWER_SHOW_SLOT_AND_UID,
+            "viewer_show_bloodline": cfg.MIGRATION.VIEWER_SHOW_BLOODLINE,
             "require_canonical_uid_paths": cfg.MIGRATION.REQUIRE_CANONICAL_UID_PATHS,
         },
         "observation": {
@@ -54,6 +49,16 @@ def build_run_metadata() -> dict:
             "canonical_ray_features": cfg.PERCEPT.CANONICAL_RAY_FEATURES,
             "canonical_self_features": cfg.PERCEPT.CANONICAL_SELF_FEATURES,
             "canonical_context_features": cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES,
+        },
+        "brain_runtime": {
+            "mode": "bloodline_mlp_families_v1",
+            "default_family": cfg.BRAIN.DEFAULT_FAMILY,
+            "family_order": list(cfg.BRAIN.FAMILY_ORDER),
+            "legacy_transformer_fallback_enabled": cfg.BRAIN.LEGACY_TRANSFORMER_FALLBACK_ENABLED,
+            "legacy_obs_fallback_enabled": cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK,
+        },
+        "viewer": {
+            "show_bloodline_legend": cfg.VIEW.SHOW_BLOODLINE_LEGEND,
         },
     }
 

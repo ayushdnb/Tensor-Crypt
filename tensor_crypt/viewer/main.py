@@ -48,18 +48,18 @@ class Viewer:
         self.input_handler = InputHandler(self)
 
     def _prepare_state_data(self):
-        """Create a snapshot of the current state for rendering."""
         with torch.no_grad():
             registry = self.engine.registry
             alive_indices = registry.get_alive_indices().cpu().tolist()
             agent_map = {}
             for idx in alive_indices:
-                agent_map[idx] = (
-                    registry.data[registry.X, idx].item(),
-                    registry.data[registry.Y, idx].item(),
-                    registry.data[registry.HP, idx].item(),
-                    registry.data[registry.HP_MAX, idx].item(),
-                )
+                agent_map[idx] = {
+                    "x": registry.data[registry.X, idx].item(),
+                    "y": registry.data[registry.Y, idx].item(),
+                    "hp": registry.data[registry.HP, idx].item(),
+                    "hp_max": registry.data[registry.HP_MAX, idx].item(),
+                    "family_id": registry.get_family_for_slot(idx),
+                }
             return {"num_alive": len(alive_indices), "agent_map": agent_map}
 
     def run(self):

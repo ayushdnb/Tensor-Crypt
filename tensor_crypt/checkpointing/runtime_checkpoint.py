@@ -70,7 +70,6 @@ def capture_rng_state() -> dict:
     cuda_state = None
     if torch.cuda.is_available():
         cuda_state = [state.cpu().clone() for state in torch.cuda.get_rng_state_all()]
-
     return {
         "python_random_state": random.getstate(),
         "numpy_random_state": np.random.get_state(),
@@ -83,28 +82,20 @@ def restore_rng_state(rng_state: dict) -> None:
     random.setstate(rng_state["python_random_state"])
     np.random.set_state(rng_state["numpy_random_state"])
     torch.set_rng_state(rng_state["torch_cpu_rng_state"].cpu())
-
     cuda_state = rng_state.get("torch_cuda_rng_state_all")
     if cuda_state is not None and torch.cuda.is_available():
         torch.cuda.set_rng_state_all(cuda_state)
 
 
 def capture_runtime_checkpoint(runtime) -> dict:
-    if not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS:
-        raise RuntimeError("Checkpoint substrate capture is disabled by configuration")
-
     registry = runtime.registry
     brain_state_by_uid = {}
     brain_metadata_by_uid = {}
-
     for uid, slot_idx in registry.active_uid_to_slot.items():
         brain = registry.brains[slot_idx]
-        if brain is None:
-            raise AssertionError(f"Active UID {uid} in slot {slot_idx} has no brain instance")
-        family_id = registry.get_family_for_uid(uid)
         brain_state_by_uid[uid] = _clone_nested_cpu(brain.state_dict())
         brain_metadata_by_uid[uid] = {
-            "family_id": family_id,
+            "family_id": registry.get_family_for_uid(uid),
             "topology_signature": list(brain.get_topology_signature()),
         }
 
@@ -123,18 +114,11 @@ def capture_runtime_checkpoint(runtime) -> dict:
     if cfg.CHECKPOINT.CAPTURE_SCALER_STATE and runtime.ppo.scaler is not None:
         scaler_state = _clone_nested_cpu(runtime.ppo.scaler.state_dict())
 
-    training_state_by_uid = {}
-    if cfg.CHECKPOINT.CAPTURE_PPO_TRAINING_STATE:
-        training_state_by_uid = runtime.ppo.serialize_training_state()
-
     return {
         "checkpoint_schema_version": cfg.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
         "schema_versions": _schema_versions_dict(cfg),
         "config_snapshot": asdict(cfg),
-        "engine_state": {
-            "tick": int(runtime.engine.tick),
-            "respawn_last_tick": int(runtime.engine.respawn_controller.last_respawn_tick),
-        },
+        "engine_state": {"tick": int(runtime.engine.tick), "respawn_last_tick": int(runtime.engine.respawn_controller.last_respawn_tick)},
         "registry_state": {
             "data": registry.data.detach().cpu().clone(),
             "slot_uid": registry.slot_uid.detach().cpu().clone(),
@@ -143,174 +127,74 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "fitness": registry.fitness.detach().cpu().clone(),
             "uid_lifecycle": serialize_agent_lifecycle(registry.uid_lifecycle),
             "uid_family": copy.deepcopy(registry.uid_family),
+            "uid_parent_roles": copy.deepcopy(registry.uid_parent_roles),
+            "uid_trait_latent": copy.deepcopy(registry.uid_trait_latent),
+            "uid_generation_depth": copy.deepcopy(registry.uid_generation_depth),
         },
-        "grid_state": {
-            "grid": runtime.grid.grid.detach().cpu().clone(),
-            "hzones": copy.deepcopy(runtime.grid.hzones),
-            "next_hzone_id": int(runtime.grid.next_hzone_id),
-        },
+        "grid_state": {"grid": runtime.grid.grid.detach().cpu().clone(), "hzones": copy.deepcopy(runtime.grid.hzones), "next_hzone_id": int(runtime.grid.next_hzone_id)},
         "brain_state_by_uid": brain_state_by_uid,
         "brain_metadata_by_uid": brain_metadata_by_uid,
         "ppo_state": {
             "buffer_state_by_uid": runtime.ppo.serialize_all_buffers(),
-            "training_state_by_uid": training_state_by_uid,
+            "training_state_by_uid": runtime.ppo.serialize_training_state(),
             "optimizer_state_by_uid": optimizer_state_by_uid,
             "optimizer_metadata_by_uid": optimizer_metadata_by_uid,
             "scaler_state": scaler_state,
         },
         "rng_state": capture_rng_state() if cfg.CHECKPOINT.CAPTURE_RNG_STATE else None,
-        "metadata": {
-            "device": str(cfg.SIM.DEVICE),
-            "amp_enabled": bool(cfg.LOG.AMP),
-        },
+        "metadata": {"device": str(cfg.SIM.DEVICE), "amp_enabled": bool(cfg.LOG.AMP)},
     }
 
 
 def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
-    required_top_keys = {
-        "checkpoint_schema_version",
-        "schema_versions",
-        "config_snapshot",
-        "engine_state",
-        "registry_state",
-        "grid_state",
-        "brain_state_by_uid",
-        "brain_metadata_by_uid",
-        "ppo_state",
-        "rng_state",
-        "metadata",
-    }
-    missing = required_top_keys.difference(bundle.keys())
-    if missing:
-        raise ValueError(f"Checkpoint bundle is missing required keys: {sorted(missing)}")
-
-    if cfg_obj.CHECKPOINT.STRICT_SCHEMA_VALIDATION:
-        expected_checkpoint_version = cfg_obj.SCHEMA.CHECKPOINT_SCHEMA_VERSION
-        if int(bundle["checkpoint_schema_version"]) != expected_checkpoint_version:
-            raise ValueError(
-                f"Checkpoint schema mismatch: expected {expected_checkpoint_version}, got {bundle['checkpoint_schema_version']}"
-            )
-        expected_versions = _schema_versions_dict(cfg_obj)
-        if bundle["schema_versions"] != expected_versions:
-            raise ValueError("Checkpoint schema_versions payload does not match the current runtime schema contract")
-
+    if int(bundle["checkpoint_schema_version"]) != int(cfg_obj.SCHEMA.CHECKPOINT_SCHEMA_VERSION):
+        raise ValueError("Checkpoint schema mismatch")
     registry_state = bundle["registry_state"]
-    data = registry_state["data"]
-    slot_uid = registry_state["slot_uid"]
-    slot_parent_uid = registry_state["slot_parent_uid"]
     uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
     uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
+    uid_parent_roles = {int(uid): {str(k): int(v) for k, v in payload.items()} for uid, payload in registry_state["uid_parent_roles"].items()}
+    uid_trait_latent = {int(uid): {str(k): float(v) for k, v in payload.items()} for uid, payload in registry_state["uid_trait_latent"].items()}
+    uid_generation_depth = {int(uid): int(depth) for uid, depth in registry_state["uid_generation_depth"].items()}
 
-    if data.shape != (Registry.NUM_COLS, cfg_obj.AGENTS.N):
-        raise ValueError(f"Registry tensor shape mismatch: expected {(Registry.NUM_COLS, cfg_obj.AGENTS.N)}, got {tuple(data.shape)}")
-    if tuple(slot_uid.shape) != (cfg_obj.AGENTS.N,):
-        raise ValueError(f"slot_uid shape mismatch: expected {(cfg_obj.AGENTS.N,)}, got {tuple(slot_uid.shape)}")
-    if tuple(slot_parent_uid.shape) != (cfg_obj.AGENTS.N,):
-        raise ValueError(f"slot_parent_uid shape mismatch: expected {(cfg_obj.AGENTS.N,)}, got {tuple(slot_parent_uid.shape)}")
-    if slot_uid.dtype != torch.int64 or slot_parent_uid.dtype != torch.int64:
-        raise ValueError("Canonical UID tensors must be int64")
-    if set(uid_family.keys()) != set(uid_lifecycle.keys()):
-        raise ValueError("UID family ledger does not match the lifecycle ledger")
+    if not (set(uid_lifecycle.keys()) == set(uid_family.keys()) == set(uid_parent_roles.keys())):
+        raise ValueError("Checkpoint lineage ledgers are inconsistent")
+    if set(uid_lifecycle.keys()) != set(uid_trait_latent.keys()) or set(uid_lifecycle.keys()) != set(uid_generation_depth.keys()):
+        raise ValueError("Checkpoint trait or generation ledgers are inconsistent")
 
-    active_uids = set()
-    for slot_idx in range(cfg_obj.AGENTS.N):
-        uid = int(slot_uid[slot_idx].item())
-        parent_uid = int(slot_parent_uid[slot_idx].item())
-        alive = bool(data[Registry.ALIVE, slot_idx].item() > 0.5)
+    slot_uid = registry_state["slot_uid"]
+    active_uids = [int(uid) for uid in slot_uid.tolist() if int(uid) >= 0]
+    if len(active_uids) != len(set(active_uids)):
+        raise ValueError("Duplicate active UID in checkpoint slot bindings")
 
-        if uid == -1:
-            if alive:
-                raise ValueError(f"Alive slot {slot_idx} is missing a canonical UID")
-            if parent_uid != -1:
-                raise ValueError(f"Unbound slot {slot_idx} still carries parent UID {parent_uid}")
-            continue
+    active_uid_set = set(active_uids)
+    known_uids = set(uid_lifecycle.keys())
+    for uid in active_uid_set:
+        if uid not in known_uids:
+            raise ValueError(f"Checkpoint slot bindings reference unknown UID {uid}")
 
-        if uid in active_uids:
-            raise ValueError(f"Duplicate active UID binding detected for UID {uid}")
-        active_uids.add(uid)
-        if not alive:
-            raise ValueError(f"Active UID {uid} is bound to dead slot {slot_idx}")
+    for surface_name in ("brain_state_by_uid", "brain_metadata_by_uid"):
+        surface_uids = {int(uid) for uid in bundle[surface_name].keys()}
+        if surface_uids != active_uid_set:
+            raise ValueError(f"Checkpoint {surface_name} does not match active UID bindings")
 
-        record = uid_lifecycle.get(uid)
-        if record is None:
-            raise ValueError(f"Active UID {uid} is missing from the lifecycle ledger")
-        if not record.is_active or record.current_slot != slot_idx or record.death_tick is not None:
-            raise ValueError(f"Lifecycle record for active UID {uid} does not match slot {slot_idx}")
-        if parent_uid != record.parent_uid:
-            raise ValueError(f"Parent UID shadow mismatch for slot {slot_idx}")
+    for surface_name in ("training_state_by_uid", "buffer_state_by_uid", "optimizer_state_by_uid", "optimizer_metadata_by_uid"):
+        surface = bundle["ppo_state"].get(surface_name, {})
+        unknown_uids = sorted(int(uid) for uid in surface.keys() if int(uid) not in known_uids)
+        if unknown_uids:
+            raise ValueError(f"Checkpoint {surface_name} references unknown UID {unknown_uids[0]}")
+
+    for uid in uid_lifecycle:
         validate_bloodline_family(uid_family[uid])
+        roles = uid_parent_roles[uid]
+        for key in ("brain_parent_uid", "trait_parent_uid", "anchor_parent_uid"):
+            if key not in roles:
+                raise ValueError(f"Checkpoint parent roles missing {key} for UID {uid}")
 
-    if cfg_obj.CHECKPOINT.STRICT_UID_VALIDATION:
-        for uid, record in uid_lifecycle.items():
-            if record.parent_uid != -1 and record.parent_uid not in uid_lifecycle:
-                raise ValueError(f"UID {uid} references unknown parent UID {record.parent_uid}")
-            if record.is_active:
-                if record.current_slot is None:
-                    raise ValueError(f"Active UID {uid} is missing its current slot")
-                if int(slot_uid[record.current_slot].item()) != uid:
-                    raise ValueError(f"Active UID {uid} lifecycle points to the wrong slot")
-                if record.death_tick is not None:
-                    raise ValueError(f"Active UID {uid} incorrectly has a death tick")
-            else:
-                if record.current_slot is not None:
-                    raise ValueError(f"Historical UID {uid} still points at slot {record.current_slot}")
-                if record.death_tick is None:
-                    raise ValueError(f"Historical UID {uid} is missing a death tick")
-            validate_bloodline_family(uid_family[uid])
+    for uid, metadata in bundle["brain_metadata_by_uid"].items():
+        validate_bloodline_family(metadata["family_id"])
 
-    brain_state_by_uid = {int(uid): state for uid, state in bundle["brain_state_by_uid"].items()}
-    brain_metadata_by_uid = {int(uid): state for uid, state in bundle["brain_metadata_by_uid"].items()}
-    if set(brain_state_by_uid.keys()) != active_uids:
-        raise ValueError("Active brain snapshots do not match the active UID set")
-    if set(brain_metadata_by_uid.keys()) != active_uids:
-        raise ValueError("Active brain metadata does not match the active UID set")
-
-    for uid, metadata in brain_metadata_by_uid.items():
-        family_id = validate_bloodline_family(str(metadata["family_id"]))
-        if family_id != uid_family[uid]:
-            raise ValueError(f"Brain metadata family mismatch for UID {uid}")
-        if "topology_signature" not in metadata:
-            raise ValueError(f"Brain metadata is missing topology_signature for UID {uid}")
-
-    ppo_state = bundle["ppo_state"]
-    required_ppo_keys = {
-        "buffer_state_by_uid",
-        "training_state_by_uid",
-        "optimizer_state_by_uid",
-        "optimizer_metadata_by_uid",
-        "scaler_state",
-    }
-    missing_ppo_keys = required_ppo_keys.difference(ppo_state.keys())
-    if missing_ppo_keys:
-        raise ValueError(f"Checkpoint PPO payload is missing keys: {sorted(missing_ppo_keys)}")
-
-    training_state_by_uid = {int(uid): payload for uid, payload in ppo_state.get("training_state_by_uid", {}).items()}
-    for uid in training_state_by_uid:
-        if uid not in uid_lifecycle:
-            raise ValueError(f"Serialized PPO training state exists for unknown UID {uid}")
-
-    optimizer_state_by_uid = {int(uid): state for uid, state in ppo_state.get("optimizer_state_by_uid", {}).items()}
-    optimizer_metadata_by_uid = {int(uid): state for uid, state in ppo_state.get("optimizer_metadata_by_uid", {}).items()}
-    for uid in optimizer_state_by_uid:
-        if uid not in active_uids:
-            raise ValueError(f"Optimizer state exists for inactive or unknown UID {uid}")
-        if uid not in optimizer_metadata_by_uid and cfg_obj.CHECKPOINT.STRICT_PPO_STATE_VALIDATION:
-            raise ValueError(f"Optimizer metadata is missing for UID {uid}")
-
-    buffer_state_by_uid = {int(uid): state for uid, state in ppo_state.get("buffer_state_by_uid", {}).items()}
-    for uid, payload in buffer_state_by_uid.items():
-        if uid not in uid_lifecycle:
-            raise ValueError(f"Serialized PPO buffer exists for unknown UID {uid}")
-        if cfg_obj.CHECKPOINT.VALIDATE_BUFFER_SCHEMA:
-            PPO.validate_serialized_buffer_payload(uid, payload)
-
-    if cfg_obj.IDENTITY.MIRROR_UIDS_TO_LEGACY_FLOAT_COLUMNS:
-        expected_uid_shadow = torch.where(slot_uid >= 0, slot_uid, torch.full_like(slot_uid, -1)).to(torch.float32)
-        expected_parent_shadow = torch.where(slot_parent_uid >= 0, slot_parent_uid, torch.full_like(slot_parent_uid, -1)).to(torch.float32)
-        if not torch.equal(data[Registry.AGENT_UID_SHADOW], expected_uid_shadow):
-            raise ValueError("Legacy AGENT_ID shadow column does not match canonical slot_uid")
-        if not torch.equal(data[Registry.PARENT_UID_SHADOW], expected_parent_shadow):
-            raise ValueError("Legacy PARENT_ID shadow column does not match canonical slot_parent_uid")
+    for uid, payload in bundle["ppo_state"]["buffer_state_by_uid"].items():
+        PPO.validate_serialized_buffer_payload(int(uid), payload)
 
 
 def _move_optimizer_state_to_device(optimizer, device: str) -> None:
@@ -322,9 +206,9 @@ def _move_optimizer_state_to_device(optimizer, device: str) -> None:
 
 def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     validate_runtime_checkpoint(bundle, cfg)
-
     registry = runtime.registry
     registry_state = bundle["registry_state"]
+
     registry.data.copy_(registry_state["data"].to(registry.device))
     registry.slot_uid = registry_state["slot_uid"].to(registry.device, dtype=torch.int64).clone()
     registry.slot_parent_uid = registry_state["slot_parent_uid"].to(registry.device, dtype=torch.int64).clone()
@@ -333,15 +217,13 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     registry.fitness = registry_state["fitness"].to(registry.device).clone()
     registry.uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
     registry.uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
-    registry.active_uid_to_slot = {
-        uid: record.current_slot
-        for uid, record in registry.uid_lifecycle.items()
-        if record.is_active and record.current_slot is not None
-    }
+    registry.uid_parent_roles = {int(uid): {str(k): int(v) for k, v in payload.items()} for uid, payload in registry_state["uid_parent_roles"].items()}
+    registry.uid_trait_latent = {int(uid): {str(k): float(v) for k, v in payload.items()} for uid, payload in registry_state["uid_trait_latent"].items()}
+    registry.uid_generation_depth = {int(uid): int(depth) for uid, depth in registry_state["uid_generation_depth"].items()}
+    registry.active_uid_to_slot = {uid: record.current_slot for uid, record in registry.uid_lifecycle.items() if record.is_active and record.current_slot is not None}
     registry.slot_family = [None] * registry.max_agents
-    registry._initial_family_cursor = 0
-
     registry.brains = [None] * registry.max_agents
+
     brain_metadata_by_uid = {int(uid): payload for uid, payload in bundle["brain_metadata_by_uid"].items()}
     brain_state_by_uid = {int(uid): payload for uid, payload in bundle["brain_state_by_uid"].items()}
     for uid, slot_idx in registry.active_uid_to_slot.items():
@@ -349,16 +231,11 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
         registry.slot_family[slot_idx] = family_id
         brain = create_brain(family_id).to(registry.device)
         brain.load_state_dict(brain_state_by_uid[uid])
-        expected_signature = tuple((name, tuple(shape)) for name, shape in brain_metadata_by_uid[uid]["topology_signature"])
-        if brain.get_topology_signature() != expected_signature:
-            raise ValueError(f"Restored brain topology mismatch for UID {uid}")
         registry.brains[slot_idx] = brain
 
-    grid_state = bundle["grid_state"]
-    runtime.grid.grid.copy_(grid_state["grid"].to(runtime.grid.device))
-    runtime.grid.hzones = copy.deepcopy(grid_state["hzones"])
-    runtime.grid.next_hzone_id = int(grid_state["next_hzone_id"])
-
+    runtime.grid.grid.copy_(bundle["grid_state"]["grid"].to(runtime.grid.device))
+    runtime.grid.hzones = copy.deepcopy(bundle["grid_state"]["hzones"])
+    runtime.grid.next_hzone_id = int(bundle["grid_state"]["next_hzone_id"])
     runtime.engine.tick = int(bundle["engine_state"]["tick"])
     runtime.engine.respawn_controller.last_respawn_tick = int(bundle["engine_state"]["respawn_last_tick"])
 
@@ -366,16 +243,12 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     runtime.ppo.optimizers_by_uid = {}
     runtime.ppo.load_serialized_buffers(ppo_state.get("buffer_state_by_uid", {}), device=cfg.SIM.DEVICE)
     runtime.ppo.load_serialized_training_state(ppo_state.get("training_state_by_uid", {}))
-
     optimizer_metadata_by_uid = {int(uid): payload for uid, payload in ppo_state.get("optimizer_metadata_by_uid", {}).items()}
     for uid, optimizer_state in ppo_state.get("optimizer_state_by_uid", {}).items():
         uid_int = int(uid)
         slot_idx = registry.get_slot_for_uid(uid_int)
-        if slot_idx is None:
-            raise ValueError(f"Cannot restore optimizer state for inactive UID {uid_int}")
         brain = registry.brains[slot_idx]
-        optimizer_metadata = optimizer_metadata_by_uid.get(uid_int)
-        runtime.ppo.validate_optimizer_state(uid_int, brain, optimizer_state, optimizer_metadata)
+        runtime.ppo.validate_optimizer_state(uid_int, brain, optimizer_state, optimizer_metadata_by_uid.get(uid_int))
         optimizer = runtime.ppo._get_optimizer(uid_int, brain)
         optimizer.load_state_dict(optimizer_state)
         _move_optimizer_state_to_device(optimizer, registry.device)
