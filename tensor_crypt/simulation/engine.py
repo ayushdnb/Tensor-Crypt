@@ -41,6 +41,9 @@ class Engine:
         self.tick = 0
         self.registry.tick_counter = 0
 
+        if getattr(self.logger, "bootstrap_initial_population", None) is not None:
+            self.logger.bootstrap_initial_population(self.registry)
+
     def _batched_brain_forward(self, obs: dict, alive_indices: torch.Tensor):
         batch_size = len(alive_indices)
         all_logits = torch.zeros(batch_size, cfg.BRAIN.ACTION_DIM, device=cfg.SIM.DEVICE)
@@ -126,11 +129,6 @@ class Engine:
                 finalization_kind="active_bootstrap",
             )
 
-    def _advance_empty_tick(self) -> None:
-        self.tick += 1
-        self.registry.tick_counter = self.tick
-        self.respawn_controller.step(self.tick, self.registry, self.grid, self.logger)
-
     def _maybe_run_ppo_update(self) -> None:
         if not self.ppo.should_update(self.tick):
             return
@@ -149,6 +147,33 @@ class Engine:
         if self.tick % cfg.LOG.LOG_TICK_EVERY == 0:
             print(f"Tick {self.tick}: {self.registry.get_num_alive()} alive")
 
+    def _log_tick_summary(self, *, tick: int, catastrophe_state: dict, physics_stats: dict, births_this_tick: int, deaths_this_tick: int) -> None:
+        self.logger.log_tick_summary(
+            tick,
+            self.registry,
+            physics_stats,
+            catastrophe_state=catastrophe_state,
+            births_this_tick=births_this_tick,
+            deaths_this_tick=deaths_this_tick,
+            reproduction_disabled=not self.respawn_controller.reproduction_enabled_override,
+            floor_recovery_active=self.registry.get_num_alive() < cfg.RESPAWN.POPULATION_FLOOR,
+            ppo=self.ppo,
+        )
+
+    def _advance_empty_tick(self) -> None:
+        catastrophe_state = self.catastrophes.build_status(self.tick)
+        self.physics.set_catastrophe_state(catastrophe_state)
+        self.respawn_controller.step(self.tick, self.registry, self.grid, self.logger)
+        self._log_tick_summary(
+            tick=self.tick,
+            catastrophe_state=catastrophe_state,
+            physics_stats={"wall_collisions": 0, "rams": 0, "contests": 0},
+            births_this_tick=self.logger.get_tick_birth_count(self.tick),
+            deaths_this_tick=self.logger.get_tick_death_count(self.tick),
+        )
+        self.tick += 1
+        self.registry.tick_counter = self.tick
+
     def step(self) -> None:
         self.registry.tick_counter = self.tick
 
@@ -159,6 +184,9 @@ class Engine:
         self.catastrophes.pre_tick(self.tick)
         self.grid.paint_hzones()
         self.catastrophes.apply_world_overrides(self.tick)
+
+        catastrophe_state = self.catastrophes.build_status(self.tick)
+        self.physics.set_catastrophe_state(catastrophe_state)
 
         alive_indices = self.registry.get_alive_indices()
 
@@ -187,12 +215,7 @@ class Engine:
         self.logger.log_physics_events(self.tick, self.physics.collision_log)
 
         self.physics.apply_environment_effects()
-        self.logger.log_tick_summary(
-            self.tick,
-            self.registry,
-            physics_stats,
-            catastrophe_state=self.catastrophes.build_status(self.tick),
-        )
+        self.logger.note_catastrophe_exposure(self.registry, catastrophe_state)
 
         current_hp = self.registry.data[self.registry.HP, alive_indices]
         max_hp = self.registry.data[self.registry.HP_MAX, alive_indices]
@@ -211,9 +234,26 @@ class Engine:
             dones,
         )
 
+        for dead_slot in deaths:
+            self.logger.finalize_death(
+                tick=self.tick,
+                slot_idx=int(dead_slot),
+                registry=self.registry,
+                ppo=self.ppo,
+                death_context=self.physics.consume_death_context(int(dead_slot)),
+            )
+
         self.evolution.process_deaths(deaths, self.ppo, death_tick=self.tick)
         self.respawn_controller.step(self.tick, self.registry, self.grid, self.logger)
         self.registry.check_invariants(self.grid)
+
+        self._log_tick_summary(
+            tick=self.tick,
+            catastrophe_state=catastrophe_state,
+            physics_stats=physics_stats,
+            births_this_tick=self.logger.get_tick_birth_count(self.tick),
+            deaths_this_tick=self.logger.get_tick_death_count(self.tick),
+        )
 
         self.tick += 1
         self.registry.tick_counter = self.tick

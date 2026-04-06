@@ -303,11 +303,11 @@ class SchemaConfig:
     IDENTITY_SCHEMA_VERSION: int = 1
     OBS_SCHEMA_VERSION: int = 2
     PPO_STATE_SCHEMA_VERSION: int = 1
-    CHECKPOINT_SCHEMA_VERSION: int = 5
+    CHECKPOINT_SCHEMA_VERSION: int = 6
     REPRODUCTION_SCHEMA_VERSION: int = 2
     CATASTROPHE_SCHEMA_VERSION: int = 1
-    TELEMETRY_SCHEMA_VERSION: int = 3
-    LOGGING_SCHEMA_VERSION: int = 4
+    TELEMETRY_SCHEMA_VERSION: int = 4
+    LOGGING_SCHEMA_VERSION: int = 5
 
 
 @dataclass
@@ -324,6 +324,52 @@ class CheckpointConfig:
     VALIDATE_OPTIMIZER_TENSOR_SHAPES: bool = True
     VALIDATE_BUFFER_SCHEMA: bool = True
     SAVE_CHECKPOINT_MANIFEST: bool = True
+
+    # Prompt 7 atomic publish and corruption controls.
+    ATOMIC_WRITE_ENABLED: bool = True
+    MANIFEST_ENABLED: bool = True
+    CHECKSUM_ENABLED: bool = True
+    STRICT_MANIFEST_VALIDATION: bool = True
+    STRICT_DIRECTORY_STRUCTURE_VALIDATION: bool = True
+    STRICT_CONFIG_FINGERPRINT_VALIDATION: bool = False
+    WRITE_LATEST_POINTER: bool = True
+    LATEST_POINTER_FILENAME: str = "latest_checkpoint.json"
+    BUNDLE_FILENAME_SUFFIX: str = ".pt"
+    MANIFEST_FILENAME_SUFFIX: str = ".manifest.json"
+    TEMPFILE_PREFIX: str = ".tmp_ckpt_"
+
+
+@dataclass
+class TelemetryConfig:
+    ENABLE_DEEP_LEDGERS: bool = True
+    LOG_LIFE_LEDGER: bool = True
+    LOG_BIRTH_LEDGER: bool = True
+    LOG_DEATH_LEDGER: bool = True
+    LOG_PPO_UPDATE_LEDGER: bool = True
+    LOG_CATASTROPHE_EVENT_LEDGER: bool = True
+    LOG_TICK_SUMMARY: bool = True
+    LOG_FAMILY_SUMMARY: bool = True
+    FAMILY_SUMMARY_EVERY_TICKS: int = 1
+    SUMMARY_EXPORT_CADENCE_TICKS: int = 1
+    EXPORT_LINEAGE: bool = True
+    LINEAGE_EXPORT_FORMAT: str = "json"  # json
+    FLUSH_OPEN_LIVES_ON_CLOSE: bool = True
+    TRACK_CATASTROPHE_EXPOSURE: bool = True
+    ENABLE_VIEWER_INSPECTOR_ENRICHMENT: bool = True
+
+
+@dataclass
+class ValidationConfig:
+    ENABLE_FINAL_AUDIT_HARNESS: bool = True
+    ENABLE_DETERMINISM_TESTS: bool = True
+    ENABLE_RESUME_CONSISTENCY_TESTS: bool = True
+    ENABLE_SAVE_LOAD_SAVE_TESTS: bool = True
+    ENABLE_CATASTROPHE_REPRO_TESTS: bool = True
+    VALIDATION_STRICTNESS: str = "strict"  # permissive | strict
+    AUDIT_DEFAULT_TICKS: int = 16
+    DETERMINISM_COMPARE_TICKS: int = 8
+    SAVE_LOAD_SAVE_COMPARE_BUFFERS: bool = True
+    STRICT_TELEMETRY_SCHEMA_WRITES: bool = True
 
 
 @dataclass
@@ -462,68 +508,10 @@ class Config:
     IDENTITY: IdentityConfig = field(default_factory=IdentityConfig)
     SCHEMA: SchemaConfig = field(default_factory=SchemaConfig)
     CHECKPOINT: CheckpointConfig = field(default_factory=CheckpointConfig)
+    TELEMETRY: TelemetryConfig = field(default_factory=TelemetryConfig)
+    VALIDATION: ValidationConfig = field(default_factory=ValidationConfig)
     MIGRATION: MigrationConfig = field(default_factory=MigrationConfig)
     CATASTROPHE: CatastropheConfig = field(default_factory=CatastropheConfig)
 
 
 cfg = Config()
-
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent
-OUT_FILE = BASE_DIR / "codes" / "evolution.txt"
-
-# Folders to ignore anywhere in the path.
-IGNORE_DIRS = {
-    "__pycache__",
-    ".git",
-    ".hg",
-    ".svn",
-    "venv",
-    ".venv",
-    "env",
-    ".env",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".pytest_tmp",
-    "build",
-    "dist",
-    "audit_tmp",
-}
-
-
-def should_ignore(path: Path) -> bool:
-    return any(part in IGNORE_DIRS for part in path.parts)
-
-
-def main() -> None:
-    OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    py_files = sorted(
-        (
-            path
-            for path in BASE_DIR.rglob("*.py")
-            if path.is_file() and not should_ignore(path.relative_to(BASE_DIR))
-        ),
-        key=lambda path: str(path.relative_to(BASE_DIR)).lower(),
-    )
-
-    with OUT_FILE.open("w", encoding="utf-8", errors="replace") as out:
-        for index, path in enumerate(py_files):
-            try:
-                code = path.read_text(encoding="utf-8", errors="replace")
-            except Exception as exc:
-                code = f"# [ERROR READING FILE: {exc}]\n"
-
-            out.write(code)
-
-            if index < len(py_files) - 1:
-                if not code.endswith("\n"):
-                    out.write("\n")
-                out.write("\n")
-
-    print(f"Done. Wrote raw code from {len(py_files)} .py files into:\n{OUT_FILE}")
-
-
-if __name__ == "__main__":
-    main()

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from dataclasses import asdict
 from pathlib import Path
 import random
@@ -12,6 +14,11 @@ from ..agents.brain import create_brain, validate_bloodline_family
 from ..agents.state_registry import AgentLifecycleRecord
 from ..config_bridge import cfg
 from ..learning.ppo import PPO
+from .atomic_checkpoint import (
+    atomic_save_checkpoint_files,
+    load_checkpoint_bundle,
+    validate_checkpoint_file_set,
+)
 
 
 def _schema_versions_dict(cfg_obj) -> dict:
@@ -37,6 +44,11 @@ def _clone_nested_cpu(value):
     if isinstance(value, tuple):
         return tuple(_clone_nested_cpu(item) for item in value)
     return copy.deepcopy(value)
+
+
+def _config_fingerprint(bundle: dict) -> str:
+    payload = json.dumps(bundle.get("config_snapshot", {}), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def serialize_agent_lifecycle(uid_lifecycle: dict[int, AgentLifecycleRecord]) -> dict[int, dict]:
@@ -155,19 +167,45 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "scaler_state": scaler_state,
         },
         "rng_state": capture_rng_state() if cfg.CHECKPOINT.CAPTURE_RNG_STATE else None,
-        "metadata": {"device": str(cfg.SIM.DEVICE), "amp_enabled": bool(cfg.LOG.AMP)},
+        "metadata": {
+            "device": str(cfg.SIM.DEVICE),
+            "amp_enabled": bool(cfg.LOG.AMP),
+            "config_fingerprint": _config_fingerprint({"config_snapshot": asdict(cfg)}),
+        },
     }
 
 
-def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
+def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None = None) -> None:
+    required_top_level = {
+        "checkpoint_schema_version",
+        "schema_versions",
+        "config_snapshot",
+        "engine_state",
+        "registry_state",
+        "grid_state",
+        "brain_state_by_uid",
+        "brain_metadata_by_uid",
+        "ppo_state",
+        "metadata",
+    }
+    missing_top_level = sorted(required_top_level - set(bundle.keys()))
+    if missing_top_level:
+        raise ValueError(f"Checkpoint is missing required top-level keys: {missing_top_level}")
+
     if int(bundle["checkpoint_schema_version"]) != int(cfg_obj.SCHEMA.CHECKPOINT_SCHEMA_VERSION):
         raise ValueError("Checkpoint schema mismatch")
 
     schema_versions = bundle.get("schema_versions", {})
     if int(schema_versions.get("CATASTROPHE_SCHEMA_VERSION", cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION)) != int(cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION):
         raise ValueError("Checkpoint catastrophe schema mismatch")
+    if int(schema_versions.get("TELEMETRY_SCHEMA_VERSION", cfg_obj.SCHEMA.TELEMETRY_SCHEMA_VERSION)) != int(cfg_obj.SCHEMA.TELEMETRY_SCHEMA_VERSION):
+        raise ValueError("Checkpoint telemetry schema mismatch")
 
     registry_state = bundle["registry_state"]
+    for key in ("data", "slot_uid", "slot_parent_uid", "fitness", "uid_lifecycle", "uid_family", "uid_parent_roles", "uid_trait_latent", "uid_generation_depth"):
+        if key not in registry_state:
+            raise ValueError(f"Checkpoint registry_state is missing '{key}'")
+
     uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
     uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
     uid_parent_roles = {int(uid): {str(k): int(v) for k, v in payload.items()} for uid, payload in registry_state["uid_parent_roles"].items()}
@@ -219,11 +257,25 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
         if int(catastrophe_state.get("schema_version", cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION)) != int(cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION):
             raise ValueError("Checkpoint catastrophe state has wrong schema version")
 
+    if manifest is not None:
+        if int(manifest["checkpoint_schema_version"]) != int(bundle["checkpoint_schema_version"]):
+            raise ValueError("Checkpoint manifest schema version does not match bundle")
+        if int(manifest["tick"]) != int(bundle["engine_state"]["tick"]):
+            raise ValueError("Checkpoint manifest tick does not match bundle")
+        if int(manifest["active_uid_count"]) != int(len(bundle["brain_state_by_uid"])):
+            raise ValueError("Checkpoint manifest active UID count does not match bundle")
+        manifest_fingerprint = manifest.get("config_fingerprint")
+        if manifest_fingerprint and cfg_obj.CHECKPOINT.STRICT_CONFIG_FINGERPRINT_VALIDATION:
+            if manifest_fingerprint != _config_fingerprint(bundle):
+                raise ValueError("Checkpoint manifest config fingerprint does not match bundle")
+
+
 def _move_optimizer_state_to_device(optimizer, device: str) -> None:
     for state in optimizer.state.values():
         for key, value in state.items():
             if torch.is_tensor(value):
                 state[key] = value.to(device)
+
 
 def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     validate_runtime_checkpoint(bundle, cfg)
@@ -296,10 +348,33 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     registry.assert_identity_invariants()
     registry.check_invariants(runtime.grid)
 
+
 def save_runtime_checkpoint(path: str | Path, bundle: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if cfg.CHECKPOINT.ATOMIC_WRITE_ENABLED and cfg.CHECKPOINT.MANIFEST_ENABLED:
+        atomic_save_checkpoint_files(path, bundle)
+        return
     torch.save(bundle, path)
 
+
 def load_runtime_checkpoint(path: str | Path) -> dict:
-    return torch.load(Path(path), map_location="cpu", weights_only=False)
+    path = Path(path)
+    if cfg.CHECKPOINT.STRICT_MANIFEST_VALIDATION and path.exists():
+        try:
+            bundle, manifest = load_checkpoint_bundle(path)
+            validate_runtime_checkpoint(bundle, cfg, manifest=manifest)
+            return bundle
+        except FileNotFoundError:
+            pass
+    bundle = torch.load(path, map_location="cpu", weights_only=False)
+    validate_runtime_checkpoint(bundle, cfg)
+    return bundle
+
+
+def validate_checkpoint_artifacts(path: str | Path) -> dict:
+    path = Path(path)
+    manifest = validate_checkpoint_file_set(path)
+    bundle = torch.load(path, map_location="cpu", weights_only=False)
+    validate_runtime_checkpoint(bundle, cfg, manifest=manifest)
+    return manifest

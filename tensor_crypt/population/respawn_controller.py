@@ -88,7 +88,7 @@ class RespawnController:
                     traits=traits,
                     trait_latent=latent,
                     mutation_flags={"rare_mutation": False, "family_shift": False, "extinction_bootstrap": True},
-                    placement={"attempts": 1, "used_global_fallback": True, "failure_reason": None},
+                    placement={"x": x, "y": y, "attempts": 1, "used_global_fallback": True, "failure_reason": None},
                     floor_recovery=False,
                 )
             spawns += 1
@@ -158,7 +158,13 @@ class RespawnController:
                         traits={},
                         trait_latent={},
                         mutation_flags={"rare_mutation": False, "family_shift": False, "placement_failed": True},
-                        placement={"attempts": placement.attempts, "used_global_fallback": placement.used_global_fallback, "failure_reason": placement.failure_reason},
+                        placement={
+                            "x": None,
+                            "y": None,
+                            "attempts": placement.attempts,
+                            "used_global_fallback": placement.used_global_fallback,
+                            "failure_reason": placement.failure_reason,
+                        },
                         floor_recovery=is_below_floor,
                     )
                 continue
@@ -215,7 +221,13 @@ class RespawnController:
                     traits=traits,
                     trait_latent=child_latent,
                     mutation_flags={"rare_mutation": mutation_flags.rare_mutation, "family_shift": mutation_flags.family_shift},
-                    placement={"attempts": placement.attempts, "used_global_fallback": placement.used_global_fallback, "failure_reason": placement.failure_reason},
+                    placement={
+                        "x": placement.x,
+                        "y": placement.y,
+                        "attempts": placement.attempts,
+                        "used_global_fallback": placement.used_global_fallback,
+                        "failure_reason": placement.failure_reason,
+                    },
                     floor_recovery=is_below_floor,
                 )
             spawns += 1

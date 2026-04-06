@@ -4,6 +4,7 @@ import pygame
 
 from ..agents.state_registry import Registry
 from ..config_bridge import cfg
+from ..population.reproduction import trait_values_from_latent
 from .colors import COLORS, get_bloodline_agent_color, get_bloodline_base_color
 
 
@@ -360,7 +361,6 @@ class SidePanel:
     def _agent_detail_lines(self, slot_id: int) -> list[tuple[str, tuple[int, int, int]]]:
         data = self.registry.data[:, slot_id]
         uid = self.registry.get_uid_for_slot(slot_id)
-        parent_uid = self.registry.get_parent_uid_for_slot(slot_id)
         family_id = self.registry.get_family_for_slot(slot_id)
         pos_x = int(data[Registry.X].item())
         pos_y = int(data[Registry.Y].item())
@@ -370,18 +370,43 @@ class SidePanel:
         vision = data[Registry.VISION].item()
         metab = data[Registry.METABOLISM_RATE].item()
 
+        lifecycle = self.registry.uid_lifecycle[uid]
+        parent_roles = self.registry.get_parent_roles_for_uid(uid)
+        birth_tick = int(lifecycle.birth_tick)
+        age = int(self.engine.tick - birth_tick)
+        lineage_depth = int(self.registry.uid_generation_depth.get(uid, 0))
+
+        latent = self.registry.get_trait_latent_for_uid(uid)
+        mapped = trait_values_from_latent(latent)
+
+        training_state = self.engine.ppo.training_state_by_uid.get(uid)
+        env_steps = 0 if training_state is None else int(training_state.env_steps)
+        ppo_updates = 0 if training_state is None else int(training_state.ppo_updates)
+        optimizer_steps = 0 if training_state is None else int(training_state.optimizer_steps)
+        truncated_rollouts = 0 if training_state is None else int(training_state.truncated_rollouts)
+
+        catastrophe_summary = {"survived_count": 0, "active_count": 0}
+        if getattr(self.engine.logger, "get_catastrophe_exposure_summary", None) is not None:
+            catastrophe_summary = self.engine.logger.get_catastrophe_exposure_summary(uid)
+
         lines = []
         if cfg.MIGRATION.VIEWER_SHOW_SLOT_AND_UID:
             lines.append((f"Slot: {slot_id}", COLORS["text_dim"]))
         lines.append((f"UID: {uid}", COLORS["text_success"]))
-        lines.append((f"Parent UID: {parent_uid if parent_uid != -1 else 'N/A'}", COLORS["text_dim"]))
+        lines.append((f"Birth tick: {birth_tick}", COLORS["text_dim"]))
+        lines.append((f"Age: {age}", COLORS["text_dim"]))
         if cfg.MIGRATION.VIEWER_SHOW_BLOODLINE:
             lines.append((f"Bloodline: {family_id}", get_bloodline_base_color(family_id)))
+        lines.append((f"Parents B/T/A: {parent_roles['brain_parent_uid']} / {parent_roles['trait_parent_uid']} / {parent_roles['anchor_parent_uid']}", COLORS["text_dim"]))
+        lines.append((f"Lineage depth: {lineage_depth}", COLORS["text_dim"]))
         lines.append((f"HP: {hp:.2f} / {hp_max:.2f}", COLORS["text_dim"]))
         lines.append((f"Position: ({pos_x}, {pos_y})", COLORS["text_dim"]))
-        lines.append((f"Mass: {mass:.2f}", COLORS["text_dim"]))
-        lines.append((f"Vision: {vision:.1f}", COLORS["text_dim"]))
-        lines.append((f"Metabolism: {metab:.4f}", COLORS["text_dim"]))
+        lines.append((f"Mass / Vision / Metab: {mass:.2f} / {vision:.1f} / {metab:.4f}", COLORS["text_dim"]))
+        lines.append((f"Trait budget: {mapped['budget']:.3f}", COLORS["text_dim"]))
+        lines.append((f"Alloc H/M/V/B: {mapped['alloc_hp']:.2f} / {mapped['alloc_mass']:.2f} / {mapped['alloc_vision']:.2f} / {mapped['alloc_metab']:.2f}", COLORS["text_dim"]))
+        lines.append((f"PPO env/update/opt: {env_steps} / {ppo_updates} / {optimizer_steps}", COLORS["text_dim"]))
+        lines.append((f"Truncated rollouts: {truncated_rollouts}", COLORS["text_dim"]))
+        lines.append((f"Catastrophes active/survived: {catastrophe_summary['active_count']} / {catastrophe_summary['survived_count']}", COLORS["text_dim"]))
         return lines
 
     def _draw_agent_details(self, surf, x, y, slot_id):
