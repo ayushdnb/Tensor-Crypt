@@ -50,6 +50,7 @@ Direct `python run.py` / `python main.py` do not self-terminate due interactive 
 | Command | Result |
 |---|---|
 | `pytest -q` | Passed (`88 passed in 25.11s`) |
+| `pytest -q` (final rerun after docs/finalization commits) | Passed (`88 passed in 20.78s`) |
 
 The full suite includes coverage for:
 - checkpoint save/load/manifest/checksum (`test_runtime_checkpoint_substrate.py`, `test_prompt7_checkpoint_atomicity.py`, prompt4/prompt5 checkpoint cases)
