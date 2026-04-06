@@ -1,9 +1,4 @@
-"""Core simulation engine for Tensor Crypt.
-
-This module is the sequencing authority for one simulation tick. It remains
-behavior-sensitive because subtle reordering here can alter training data,
-death timing, respawn timing, logging payloads, and viewer state.
-"""
+"""Core simulation engine for Tensor Crypt."""
 
 from __future__ import annotations
 
@@ -15,13 +10,6 @@ from ..population.respawn_controller import RespawnController
 
 
 class Engine:
-    """
-    High-level orchestrator for the simulation.
-
-    The engine holds stable references to the major subsystems and executes the
-    tick pipeline in the exact order expected by the existing simulation.
-    """
-
     def __init__(
         self,
         grid,
@@ -44,13 +32,10 @@ class Engine:
         self.tick = 0
         self.registry.tick_counter = 0
 
-        self.last_obs_dict = {}
-        self.last_dones_dict = {}
-
     def _batched_brain_forward(self, obs: dict, alive_indices: torch.Tensor):
         batch_size = len(alive_indices)
-        all_logits = torch.zeros(batch_size, 9, device=cfg.SIM.DEVICE)
-        all_values = torch.zeros(batch_size, 1, device=cfg.SIM.DEVICE)
+        all_logits = torch.zeros(batch_size, cfg.BRAIN.ACTION_DIM, device=cfg.SIM.DEVICE)
+        all_values = torch.zeros(batch_size, cfg.BRAIN.VALUE_DIM, device=cfg.SIM.DEVICE)
 
         for i, agent_idx in enumerate(alive_indices):
             idx_int = int(agent_idx.item())
@@ -62,7 +47,6 @@ class Engine:
 
             brain.eval()
             agent_obs = {key: value[i : i + 1] for key, value in obs.items()}
-
             logits, value = brain(agent_obs)
             all_logits[i] = logits.squeeze(0)
             all_values[i] = value.squeeze(0)
@@ -94,19 +78,16 @@ class Engine:
         values: torch.Tensor,
         dones: torch.Tensor,
     ) -> None:
-        self.last_obs_dict.clear()
-        self.last_dones_dict.clear()
-
         for i, idx_int in enumerate(alive_indices.cpu().numpy()):
-            uid = self.registry.get_uid_for_slot(int(idx_int))
+            slot_idx = int(idx_int)
+            uid = self.registry.get_uid_for_slot(slot_idx)
             if uid == -1:
-                raise AssertionError(f"Alive slot {idx_int} has no canonical UID during transition storage")
+                raise AssertionError(f"Alive slot {slot_idx} has no canonical UID during transition storage")
 
             agent_obs = {key: value[i] for key, value in obs.items()}
-
             self.ppo.store_transition_for_slot(
                 self.registry,
-                int(idx_int),
+                slot_idx,
                 agent_obs,
                 actions_compact[i],
                 log_probs[i],
@@ -115,8 +96,26 @@ class Engine:
                 dones[i],
             )
 
-            self.last_obs_dict[uid] = agent_obs
-            self.last_dones_dict[uid] = dones[i]
+            if float(dones[i].detach().item()) >= 0.5:
+                self.ppo.finalize_terminal_uid(uid)
+
+    def _stage_bootstrap_state_for_update(self) -> None:
+        final_alive_indices = self.registry.get_alive_indices()
+        if len(final_alive_indices) == 0:
+            return
+
+        final_obs_batch = self.perception.build_observations(final_alive_indices)
+        for i, idx_int in enumerate(final_alive_indices.cpu().numpy()):
+            slot_idx = int(idx_int)
+            uid = self.registry.get_uid_for_slot(slot_idx)
+            if uid == -1:
+                raise AssertionError(f"Alive slot {slot_idx} has no UID during PPO bootstrap capture")
+            self.ppo.stage_bootstrap_for_uid(
+                uid,
+                {key: value[i] for key, value in final_obs_batch.items()},
+                torch.tensor(0.0, device=cfg.SIM.DEVICE),
+                finalization_kind="active_bootstrap",
+            )
 
     def _advance_empty_tick(self) -> None:
         self.tick += 1
@@ -127,36 +126,18 @@ class Engine:
         if not self.ppo.should_update(self.tick):
             return
 
-        next_obs_dict = {}
-        next_dones_dict = {}
-
-        final_alive_indices = self.registry.get_alive_indices()
-        if len(final_alive_indices) > 0:
-            final_obs_batch = self.perception.build_observations(final_alive_indices)
-
-            for i, idx_int in enumerate(final_alive_indices.cpu().numpy()):
-                uid = self.registry.get_uid_for_slot(int(idx_int))
-                if uid == -1:
-                    raise AssertionError(f"Alive slot {idx_int} has no UID during PPO bootstrap capture")
-                next_obs_dict[uid] = {key: value[i] for key, value in final_obs_batch.items()}
-                next_dones_dict[uid] = torch.tensor(0.0, device=cfg.SIM.DEVICE)
-
-        update_stats_list = self.ppo.update(
-            self.registry,
-            self.perception,
-            next_obs_dict,
-            next_dones_dict,
-        )
-
+        self._stage_bootstrap_state_for_update()
+        update_stats_list = self.ppo.update(self.registry, tick=self.tick)
         self.logger.log_ppo_update(self.tick, update_stats_list)
 
         if update_stats_list:
             print(f"Tick {self.tick}: PPO Update performed for {len(update_stats_list)} agents.")
             for stats in update_stats_list[:2]:
                 print(
-                    f"  UID {stats['agent_uid']} (slot {stats['agent_slot']}): "
+                    f"  UID {stats['agent_uid']} (slot {stats['agent_slot']}, family {stats['family_id']}): "
                     f"PLoss={stats['policy_loss']:.3f}, "
-                    f"VLoss={stats['value_loss']:.3f}"
+                    f"VLoss={stats['value_loss']:.3f}, "
+                    f"KL={stats['kl_div']:.4f}"
                 )
 
     def _maybe_save_snapshots(self) -> None:

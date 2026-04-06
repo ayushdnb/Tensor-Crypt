@@ -1,9 +1,4 @@
-"""Root configuration surface for Tensor Crypt.
-
-This module remains the canonical public knob surface for the project. Internal
-package code reaches it through `tensor_crypt.config_bridge` so runtime imports
-do not depend on the current working directory.
-"""
+"""Root configuration surface for Tensor Crypt."""
 
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -32,13 +27,10 @@ class GridConfig:
 
 @dataclass
 class MapgenConfig:
-    """Configuration for procedural map generation."""
-
     RANDOM_WALLS: int = 9
     WALL_SEG_MIN: int = 20
     WALL_SEG_MAX: int = 83
     WALL_AVOID_MARGIN: int = 4
-
     HEAL_ZONE_COUNT: int = 9
     HEAL_ZONE_SIZE_RATIO: float = 20 / 256
     HEAL_RATE: float = 0.5
@@ -53,12 +45,10 @@ class AgentsConfig:
 
 @dataclass
 class RespawnConfig:
-    """Settings for population floor/ceiling control."""
-
     RESPAWN_PERIOD: int = 100
     MAX_SPAWNS_PER_CYCLE: int = 10
     POPULATION_FLOOR: int = 20
-    POPULATION_CEILING: int = 150  # Must be <= AgentsConfig.N.
+    POPULATION_CEILING: int = 150
 
 
 @dataclass
@@ -113,7 +103,8 @@ class PerceptionConfig:
     CANONICAL_SELF_FEATURES: int = 11
     CANONICAL_CONTEXT_FEATURES: int = 3
 
-    # Temporary Prompt 2 bridge into the legacy transformer brain.
+    # Transitional Prompt 2 bridge. Prompt 3 brains no longer consume these
+    # fields, but the emission path remains available for narrow compatibility.
     LEGACY_RAY_FEATURES: int = 5
     LEGACY_STATE_FEATURES: int = 2
     LEGACY_GENOME_FEATURES: int = 4
@@ -121,21 +112,116 @@ class PerceptionConfig:
     LEGACY_CONTEXT_FEATURES: int = 3
     LEGACY_ADAPTER_MODE: str = "prompt2_canonical_bridge_v1"
 
-    # Explicit bounded normalization knobs.
     ZONE_RATE_ABS_MAX: float = 5.0
     AGE_NORM_TICKS: int = 1024
     RETURN_CANONICAL_OBSERVATIONS: bool = True
 
 
 @dataclass
+class BloodlineFamilySpec:
+    hidden_widths: List[int] = field(default_factory=lambda: [256, 256, 192])
+    activation: str = "gelu"  # relu | gelu | silu | tanh
+    normalization: str = "pre"  # pre | post | none
+    residual: bool = True
+    gated: bool = False
+    split_inputs: bool = False
+    split_ray_width: int = 0
+    split_scalar_width: int = 0
+    dropout: float = 0.0
+
+
+@dataclass
 class BrainConfig:
-    D_MODEL: int = 16
-    N_HEADS: int = 2
-    FUSION_LAYERS: int = 2
-    K_QUERIES: int = 2
-    USE_GRU: bool = True
-    GRU_HIDDEN: int = 64
-    DROPOUT: float = 0.001
+    ACTION_DIM: int = 9
+    VALUE_DIM: int = 1
+
+    FAMILY_ORDER: List[str] = field(
+        default_factory=lambda: [
+            "House Nocthar",
+            "House Vespera",
+            "House Umbrael",
+            "House Mourndveil",
+            "House Somnyr",
+        ]
+    )
+    DEFAULT_FAMILY: str = "House Nocthar"
+    INITIAL_FAMILY_ASSIGNMENT: str = "round_robin"  # round_robin | weighted_random
+    INITIAL_FAMILY_WEIGHTS: Dict[str, float] = field(
+        default_factory=lambda: {
+            "House Nocthar": 1.0,
+            "House Vespera": 1.0,
+            "House Umbrael": 1.0,
+            "House Mourndveil": 1.0,
+            "House Somnyr": 1.0,
+        }
+    )
+
+    LEGACY_TRANSFORMER_FALLBACK_ENABLED: bool = False
+    ALLOW_LEGACY_OBS_FALLBACK: bool = True
+
+    FAMILY_COLORS: Dict[str, List[int]] = field(
+        default_factory=lambda: {
+            "House Nocthar": [98, 84, 116],
+            "House Vespera": [90, 78, 124],
+            "House Umbrael": [70, 96, 112],
+            "House Mourndveil": [120, 82, 90],
+            "House Somnyr": [88, 98, 132],
+        }
+    )
+
+    FAMILY_SPECS: Dict[str, BloodlineFamilySpec] = field(
+        default_factory=lambda: {
+            "House Nocthar": BloodlineFamilySpec(
+                hidden_widths=[256, 256, 224, 192],
+                activation="gelu",
+                normalization="pre",
+                residual=True,
+                gated=False,
+                split_inputs=False,
+                dropout=0.00,
+            ),
+            "House Vespera": BloodlineFamilySpec(
+                hidden_widths=[160, 160, 160, 128, 128],
+                activation="silu",
+                normalization="pre",
+                residual=True,
+                gated=False,
+                split_inputs=False,
+                dropout=0.00,
+            ),
+            "House Umbrael": BloodlineFamilySpec(
+                hidden_widths=[320, 320, 224],
+                activation="relu",
+                normalization="post",
+                residual=True,
+                gated=False,
+                split_inputs=False,
+                dropout=0.00,
+            ),
+            "House Mourndveil": BloodlineFamilySpec(
+                hidden_widths=[224, 224, 192],
+                activation="silu",
+                normalization="pre",
+                residual=True,
+                gated=True,
+                split_inputs=True,
+                split_ray_width=160,
+                split_scalar_width=96,
+                dropout=0.00,
+            ),
+            "House Somnyr": BloodlineFamilySpec(
+                hidden_widths=[256, 256, 256, 224, 192],
+                activation="gelu",
+                normalization="pre",
+                residual=True,
+                gated=True,
+                split_inputs=True,
+                split_ray_width=192,
+                split_scalar_width=128,
+                dropout=0.02,
+            ),
+        }
+    )
 
 
 @dataclass
@@ -153,6 +239,16 @@ class PPOConfig:
     GRAD_NORM_CLIP: float = 1.0
     REWARD_FORM: str = "sq_health_ratio"  # sq_health_ratio | health_ratio | raw_health
     UPDATE_EVERY_N_TICKS: int = 256
+
+    # Prompt 4 UID-owned training-state hardening.
+    OWNERSHIP_MODE: str = "uid_strict"
+    BUFFER_SCHEMA_VERSION: int = 1
+    TRACK_TRAINING_STATE: bool = True
+    FAMILY_AWARE_UPDATE_ORDERING: bool = True
+    REQUIRE_BOOTSTRAP_FOR_ACTIVE_BUFFER: bool = True
+    COUNT_TRUNCATED_ROLLOUTS: bool = True
+    DROP_INACTIVE_UID_BUFFERS_AFTER_FINALIZATION: bool = True
+    STRICT_BUFFER_VALIDATION: bool = True
 
 
 @dataclass
@@ -194,6 +290,8 @@ class ViewerConfig:
     WINDOW_WIDTH: int = 800
     WINDOW_HEIGHT: int = 800
     CELL_SIZE: int = 10
+    SHOW_BLOODLINE_LEGEND: bool = True
+    BLOODLINE_LOW_HP_SHADE: float = 0.35
 
 
 @dataclass
@@ -219,10 +317,11 @@ class IdentityConfig:
 class SchemaConfig:
     IDENTITY_SCHEMA_VERSION: int = 1
     OBS_SCHEMA_VERSION: int = 2
-    CHECKPOINT_SCHEMA_VERSION: int = 1
+    PPO_STATE_SCHEMA_VERSION: int = 1
+    CHECKPOINT_SCHEMA_VERSION: int = 3
     REPRODUCTION_SCHEMA_VERSION: int = 1
-    TELEMETRY_SCHEMA_VERSION: int = 1
-    LOGGING_SCHEMA_VERSION: int = 1
+    TELEMETRY_SCHEMA_VERSION: int = 2
+    LOGGING_SCHEMA_VERSION: int = 2
 
 
 @dataclass
@@ -231,8 +330,13 @@ class CheckpointConfig:
     CAPTURE_RNG_STATE: bool = True
     CAPTURE_OPTIMIZER_STATE: bool = True
     CAPTURE_SCALER_STATE: bool = True
+    CAPTURE_PPO_TRAINING_STATE: bool = True
+    CAPTURE_BOOTSTRAP_STATE: bool = True
     STRICT_SCHEMA_VALIDATION: bool = True
     STRICT_UID_VALIDATION: bool = True
+    STRICT_PPO_STATE_VALIDATION: bool = True
+    VALIDATE_OPTIMIZER_TENSOR_SHAPES: bool = True
+    VALIDATE_BUFFER_SCHEMA: bool = True
     SAVE_CHECKPOINT_MANIFEST: bool = True
 
 
@@ -241,6 +345,7 @@ class MigrationConfig:
     LOG_LEGACY_SLOT_FIELDS: bool = True
     LOG_UID_FIELDS: bool = True
     VIEWER_SHOW_SLOT_AND_UID: bool = True
+    VIEWER_SHOW_BLOODLINE: bool = True
     REQUIRE_CANONICAL_UID_PATHS: bool = True
 
 
@@ -266,62 +371,3 @@ class Config:
 
 
 cfg = Config()
-
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent
-OUT_FILE = BASE_DIR / "codes" / "evolution.txt"
-
-IGNORE_DIRS = {
-    "__pycache__",
-    ".git",
-    ".hg",
-    ".svn",
-    "venv",
-    ".venv",
-    "env",
-    ".env",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".pytest_tmp",
-    "build",
-    "dist",
-    "audit_tmp",
-}
-
-
-def should_ignore(path: Path) -> bool:
-    return any(part in IGNORE_DIRS for part in path.parts)
-
-
-def main() -> None:
-    OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    py_files = sorted(
-        (
-            path
-            for path in BASE_DIR.rglob("*.py")
-            if path.is_file() and not should_ignore(path.relative_to(BASE_DIR))
-        ),
-        key=lambda path: str(path.relative_to(BASE_DIR)).lower(),
-    )
-
-    with OUT_FILE.open("w", encoding="utf-8", errors="replace") as out:
-        for index, path in enumerate(py_files):
-            try:
-                code = path.read_text(encoding="utf-8", errors="replace")
-            except Exception as exc:
-                code = f"# [ERROR READING FILE: {exc}]\n"
-
-            out.write(code)
-
-            if index < len(py_files) - 1:
-                if not code.endswith("\n"):
-                    out.write("\n")
-                out.write("\n")
-
-    print(f"Done. Wrote raw code from {len(py_files)} .py files into:\n{OUT_FILE}")
-
-
-if __name__ == "__main__":
-    main()

@@ -79,7 +79,7 @@ def test_invalid_minibatch_configuration_raises_clear_error():
         ppo.store_transition(uid, obs, torch.tensor(0), torch.tensor(0.0), torch.tensor(1.0), torch.tensor(0.0), torch.tensor(0.0))
 
     with pytest.raises(ValueError, match="cannot exceed trajectory batch size"):
-        ppo.update(registry, None, {}, {})
+        ppo.update(registry, None, {uid: obs}, {uid: torch.tensor(0.0)})
 
 
 def test_update_trains_and_clears_buffer():
@@ -102,7 +102,7 @@ def test_update_trains_and_clears_buffer():
     for _ in range(2):
         ppo.store_transition(uid, obs, torch.tensor(0), torch.tensor(0.0), torch.tensor(1.0), torch.tensor(0.0), torch.tensor(0.0))
 
-    stats = ppo.update(registry, None, {}, {})
+    stats = ppo.update(registry, None, {uid: obs}, {uid: torch.tensor(0.0)})
 
     assert len(stats) == 1
     assert stats[0]["agent_uid"] == uid

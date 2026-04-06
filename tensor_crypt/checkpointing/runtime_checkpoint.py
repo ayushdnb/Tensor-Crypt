@@ -8,7 +8,7 @@ import random
 import numpy as np
 import torch
 
-from ..agents.brain import Brain
+from ..agents.brain import create_brain, validate_bloodline_family
 from ..agents.state_registry import AgentLifecycleRecord, Registry
 from ..config_bridge import cfg
 from ..learning.ppo import PPO
@@ -18,6 +18,7 @@ def _schema_versions_dict(cfg_obj) -> dict:
     return {
         "IDENTITY_SCHEMA_VERSION": cfg_obj.SCHEMA.IDENTITY_SCHEMA_VERSION,
         "OBS_SCHEMA_VERSION": cfg_obj.SCHEMA.OBS_SCHEMA_VERSION,
+        "PPO_STATE_SCHEMA_VERSION": cfg_obj.SCHEMA.PPO_STATE_SCHEMA_VERSION,
         "CHECKPOINT_SCHEMA_VERSION": cfg_obj.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
         "REPRODUCTION_SCHEMA_VERSION": cfg_obj.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
         "TELEMETRY_SCHEMA_VERSION": cfg_obj.SCHEMA.TELEMETRY_SCHEMA_VERSION,
@@ -94,22 +95,37 @@ def capture_runtime_checkpoint(runtime) -> dict:
 
     registry = runtime.registry
     brain_state_by_uid = {}
+    brain_metadata_by_uid = {}
+
     for uid, slot_idx in registry.active_uid_to_slot.items():
         brain = registry.brains[slot_idx]
         if brain is None:
             raise AssertionError(f"Active UID {uid} in slot {slot_idx} has no brain instance")
+        family_id = registry.get_family_for_uid(uid)
         brain_state_by_uid[uid] = _clone_nested_cpu(brain.state_dict())
+        brain_metadata_by_uid[uid] = {
+            "family_id": family_id,
+            "topology_signature": list(brain.get_topology_signature()),
+        }
 
     optimizer_state_by_uid = {}
+    optimizer_metadata_by_uid = {}
     if cfg.CHECKPOINT.CAPTURE_OPTIMIZER_STATE:
-        optimizer_state_by_uid = {
-            uid: _clone_nested_cpu(optimizer.state_dict())
-            for uid, optimizer in runtime.ppo.optimizers_by_uid.items()
-        }
+        for uid, optimizer in runtime.ppo.optimizers_by_uid.items():
+            slot_idx = registry.get_slot_for_uid(uid)
+            if slot_idx is None:
+                raise ValueError(f"Cannot capture optimizer state for inactive UID {uid}")
+            brain = registry.brains[slot_idx]
+            optimizer_state_by_uid[uid] = _clone_nested_cpu(optimizer.state_dict())
+            optimizer_metadata_by_uid[uid] = runtime.ppo.build_optimizer_metadata(brain, optimizer)
 
     scaler_state = None
     if cfg.CHECKPOINT.CAPTURE_SCALER_STATE and runtime.ppo.scaler is not None:
         scaler_state = _clone_nested_cpu(runtime.ppo.scaler.state_dict())
+
+    training_state_by_uid = {}
+    if cfg.CHECKPOINT.CAPTURE_PPO_TRAINING_STATE:
+        training_state_by_uid = runtime.ppo.serialize_training_state()
 
     return {
         "checkpoint_schema_version": cfg.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
@@ -126,6 +142,7 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "next_agent_uid": int(registry.next_agent_uid),
             "fitness": registry.fitness.detach().cpu().clone(),
             "uid_lifecycle": serialize_agent_lifecycle(registry.uid_lifecycle),
+            "uid_family": copy.deepcopy(registry.uid_family),
         },
         "grid_state": {
             "grid": runtime.grid.grid.detach().cpu().clone(),
@@ -133,9 +150,12 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "next_hzone_id": int(runtime.grid.next_hzone_id),
         },
         "brain_state_by_uid": brain_state_by_uid,
+        "brain_metadata_by_uid": brain_metadata_by_uid,
         "ppo_state": {
-            "optimizer_state_by_uid": optimizer_state_by_uid,
             "buffer_state_by_uid": runtime.ppo.serialize_all_buffers(),
+            "training_state_by_uid": training_state_by_uid,
+            "optimizer_state_by_uid": optimizer_state_by_uid,
+            "optimizer_metadata_by_uid": optimizer_metadata_by_uid,
             "scaler_state": scaler_state,
         },
         "rng_state": capture_rng_state() if cfg.CHECKPOINT.CAPTURE_RNG_STATE else None,
@@ -155,6 +175,7 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
         "registry_state",
         "grid_state",
         "brain_state_by_uid",
+        "brain_metadata_by_uid",
         "ppo_state",
         "rng_state",
         "metadata",
@@ -178,6 +199,7 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
     slot_uid = registry_state["slot_uid"]
     slot_parent_uid = registry_state["slot_parent_uid"]
     uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
+    uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
 
     if data.shape != (Registry.NUM_COLS, cfg_obj.AGENTS.N):
         raise ValueError(f"Registry tensor shape mismatch: expected {(Registry.NUM_COLS, cfg_obj.AGENTS.N)}, got {tuple(data.shape)}")
@@ -187,6 +209,8 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
         raise ValueError(f"slot_parent_uid shape mismatch: expected {(cfg_obj.AGENTS.N,)}, got {tuple(slot_parent_uid.shape)}")
     if slot_uid.dtype != torch.int64 or slot_parent_uid.dtype != torch.int64:
         raise ValueError("Canonical UID tensors must be int64")
+    if set(uid_family.keys()) != set(uid_lifecycle.keys()):
+        raise ValueError("UID family ledger does not match the lifecycle ledger")
 
     active_uids = set()
     for slot_idx in range(cfg_obj.AGENTS.N):
@@ -214,6 +238,7 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
             raise ValueError(f"Lifecycle record for active UID {uid} does not match slot {slot_idx}")
         if parent_uid != record.parent_uid:
             raise ValueError(f"Parent UID shadow mismatch for slot {slot_idx}")
+        validate_bloodline_family(uid_family[uid])
 
     if cfg_obj.CHECKPOINT.STRICT_UID_VALIDATION:
         for uid, record in uid_lifecycle.items():
@@ -231,20 +256,53 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
                     raise ValueError(f"Historical UID {uid} still points at slot {record.current_slot}")
                 if record.death_tick is None:
                     raise ValueError(f"Historical UID {uid} is missing a death tick")
+            validate_bloodline_family(uid_family[uid])
 
     brain_state_by_uid = {int(uid): state for uid, state in bundle["brain_state_by_uid"].items()}
+    brain_metadata_by_uid = {int(uid): state for uid, state in bundle["brain_metadata_by_uid"].items()}
     if set(brain_state_by_uid.keys()) != active_uids:
         raise ValueError("Active brain snapshots do not match the active UID set")
+    if set(brain_metadata_by_uid.keys()) != active_uids:
+        raise ValueError("Active brain metadata does not match the active UID set")
 
-    optimizer_state_by_uid = {int(uid): state for uid, state in bundle["ppo_state"].get("optimizer_state_by_uid", {}).items()}
+    for uid, metadata in brain_metadata_by_uid.items():
+        family_id = validate_bloodline_family(str(metadata["family_id"]))
+        if family_id != uid_family[uid]:
+            raise ValueError(f"Brain metadata family mismatch for UID {uid}")
+        if "topology_signature" not in metadata:
+            raise ValueError(f"Brain metadata is missing topology_signature for UID {uid}")
+
+    ppo_state = bundle["ppo_state"]
+    required_ppo_keys = {
+        "buffer_state_by_uid",
+        "training_state_by_uid",
+        "optimizer_state_by_uid",
+        "optimizer_metadata_by_uid",
+        "scaler_state",
+    }
+    missing_ppo_keys = required_ppo_keys.difference(ppo_state.keys())
+    if missing_ppo_keys:
+        raise ValueError(f"Checkpoint PPO payload is missing keys: {sorted(missing_ppo_keys)}")
+
+    training_state_by_uid = {int(uid): payload for uid, payload in ppo_state.get("training_state_by_uid", {}).items()}
+    for uid in training_state_by_uid:
+        if uid not in uid_lifecycle:
+            raise ValueError(f"Serialized PPO training state exists for unknown UID {uid}")
+
+    optimizer_state_by_uid = {int(uid): state for uid, state in ppo_state.get("optimizer_state_by_uid", {}).items()}
+    optimizer_metadata_by_uid = {int(uid): state for uid, state in ppo_state.get("optimizer_metadata_by_uid", {}).items()}
     for uid in optimizer_state_by_uid:
-        if uid not in brain_state_by_uid:
-            raise ValueError(f"Optimizer state exists for UID {uid} without a matching active brain snapshot")
+        if uid not in active_uids:
+            raise ValueError(f"Optimizer state exists for inactive or unknown UID {uid}")
+        if uid not in optimizer_metadata_by_uid and cfg_obj.CHECKPOINT.STRICT_PPO_STATE_VALIDATION:
+            raise ValueError(f"Optimizer metadata is missing for UID {uid}")
 
-    buffer_state_by_uid = {int(uid): state for uid, state in bundle["ppo_state"].get("buffer_state_by_uid", {}).items()}
-    for uid in buffer_state_by_uid:
+    buffer_state_by_uid = {int(uid): state for uid, state in ppo_state.get("buffer_state_by_uid", {}).items()}
+    for uid, payload in buffer_state_by_uid.items():
         if uid not in uid_lifecycle:
             raise ValueError(f"Serialized PPO buffer exists for unknown UID {uid}")
+        if cfg_obj.CHECKPOINT.VALIDATE_BUFFER_SCHEMA:
+            PPO.validate_serialized_buffer_payload(uid, payload)
 
     if cfg_obj.IDENTITY.MIRROR_UIDS_TO_LEGACY_FLOAT_COLUMNS:
         expected_uid_shadow = torch.where(slot_uid >= 0, slot_uid, torch.full_like(slot_uid, -1)).to(torch.float32)
@@ -274,16 +332,26 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     registry.next_unique_id = registry.next_agent_uid
     registry.fitness = registry_state["fitness"].to(registry.device).clone()
     registry.uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
+    registry.uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
     registry.active_uid_to_slot = {
         uid: record.current_slot
         for uid, record in registry.uid_lifecycle.items()
         if record.is_active and record.current_slot is not None
     }
+    registry.slot_family = [None] * registry.max_agents
+    registry._initial_family_cursor = 0
 
     registry.brains = [None] * registry.max_agents
+    brain_metadata_by_uid = {int(uid): payload for uid, payload in bundle["brain_metadata_by_uid"].items()}
+    brain_state_by_uid = {int(uid): payload for uid, payload in bundle["brain_state_by_uid"].items()}
     for uid, slot_idx in registry.active_uid_to_slot.items():
-        brain = Brain().to(registry.device)
-        brain.load_state_dict(bundle["brain_state_by_uid"][uid])
+        family_id = validate_bloodline_family(brain_metadata_by_uid[uid]["family_id"])
+        registry.slot_family[slot_idx] = family_id
+        brain = create_brain(family_id).to(registry.device)
+        brain.load_state_dict(brain_state_by_uid[uid])
+        expected_signature = tuple((name, tuple(shape)) for name, shape in brain_metadata_by_uid[uid]["topology_signature"])
+        if brain.get_topology_signature() != expected_signature:
+            raise ValueError(f"Restored brain topology mismatch for UID {uid}")
         registry.brains[slot_idx] = brain
 
     grid_state = bundle["grid_state"]
@@ -293,23 +361,26 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
 
     runtime.engine.tick = int(bundle["engine_state"]["tick"])
     runtime.engine.respawn_controller.last_respawn_tick = int(bundle["engine_state"]["respawn_last_tick"])
-    runtime.engine.last_obs_dict.clear()
-    runtime.engine.last_dones_dict.clear()
 
+    ppo_state = bundle["ppo_state"]
     runtime.ppo.optimizers_by_uid = {}
-    runtime.ppo.load_serialized_buffers(bundle["ppo_state"].get("buffer_state_by_uid", {}), device=cfg.SIM.DEVICE)
-    for uid, optimizer_state in bundle["ppo_state"].get("optimizer_state_by_uid", {}).items():
+    runtime.ppo.load_serialized_buffers(ppo_state.get("buffer_state_by_uid", {}), device=cfg.SIM.DEVICE)
+    runtime.ppo.load_serialized_training_state(ppo_state.get("training_state_by_uid", {}))
+
+    optimizer_metadata_by_uid = {int(uid): payload for uid, payload in ppo_state.get("optimizer_metadata_by_uid", {}).items()}
+    for uid, optimizer_state in ppo_state.get("optimizer_state_by_uid", {}).items():
         uid_int = int(uid)
         slot_idx = registry.get_slot_for_uid(uid_int)
         if slot_idx is None:
             raise ValueError(f"Cannot restore optimizer state for inactive UID {uid_int}")
         brain = registry.brains[slot_idx]
-        runtime.ppo.validate_optimizer_state(uid_int, brain, optimizer_state)
+        optimizer_metadata = optimizer_metadata_by_uid.get(uid_int)
+        runtime.ppo.validate_optimizer_state(uid_int, brain, optimizer_state, optimizer_metadata)
         optimizer = runtime.ppo._get_optimizer(uid_int, brain)
         optimizer.load_state_dict(optimizer_state)
         _move_optimizer_state_to_device(optimizer, registry.device)
 
-    scaler_state = bundle["ppo_state"].get("scaler_state")
+    scaler_state = ppo_state.get("scaler_state")
     if scaler_state is not None and runtime.ppo.scaler is not None:
         runtime.ppo.scaler.load_state_dict(scaler_state)
 
