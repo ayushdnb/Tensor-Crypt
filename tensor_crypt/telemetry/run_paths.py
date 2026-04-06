@@ -16,6 +16,7 @@ def schema_versions_dict() -> dict:
         "OBS_SCHEMA_VERSION": cfg.SCHEMA.OBS_SCHEMA_VERSION,
         "CHECKPOINT_SCHEMA_VERSION": cfg.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
         "REPRODUCTION_SCHEMA_VERSION": cfg.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
+        "CATASTROPHE_SCHEMA_VERSION": cfg.SCHEMA.CATASTROPHE_SCHEMA_VERSION,
         "TELEMETRY_SCHEMA_VERSION": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
         "LOGGING_SCHEMA_VERSION": cfg.SCHEMA.LOGGING_SCHEMA_VERSION,
     }
@@ -57,8 +58,18 @@ def build_run_metadata() -> dict:
             "legacy_transformer_fallback_enabled": cfg.BRAIN.LEGACY_TRANSFORMER_FALLBACK_ENABLED,
             "legacy_obs_fallback_enabled": cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK,
         },
+        "catastrophe_runtime": {
+            "enabled": cfg.CATASTROPHE.ENABLED,
+            "default_mode": cfg.CATASTROPHE.DEFAULT_MODE,
+            "allow_overlap": cfg.CATASTROPHE.ALLOW_OVERLAP,
+            "max_concurrent": cfg.CATASTROPHE.MAX_CONCURRENT,
+            "manual_trigger_enabled": cfg.CATASTROPHE.MANUAL_TRIGGER_ENABLED,
+            "manual_clear_enabled": cfg.CATASTROPHE.MANUAL_CLEAR_ENABLED,
+        },
         "viewer": {
             "show_bloodline_legend": cfg.VIEW.SHOW_BLOODLINE_LEGEND,
+            "show_catastrophe_panel": cfg.VIEW.SHOW_CATASTROPHE_PANEL,
+            "show_catastrophe_overlay": cfg.VIEW.SHOW_CATASTROPHE_OVERLAY,
         },
     }
 

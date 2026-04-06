@@ -57,6 +57,8 @@ class WorldRenderer:
         self._draw_selection_markers(surf, wrect, c, state_data)
         if self.viewer.show_grid and c >= 6:
             self._draw_grid_lines(surf, wrect, c)
+        if self.viewer.show_catastrophe_overlay:
+            self._draw_catastrophe_overlay(surf, wrect, state_data)
         pygame.draw.rect(surf, COLORS["border"], wrect, 2)
 
     def _draw_agents(self, surf, wrect, c, state_data):
@@ -123,7 +125,7 @@ class WorldRenderer:
             wrect.x + self.cam.world_to_screen(agent_x, agent_y)[0] + c // 2,
             wrect.y + self.cam.world_to_screen(agent_x, agent_y)[1] + c // 2,
         )
-        vision_range = int(self.registry.data[Registry.VISION, slot_id].item())
+        vision_range = int(self.engine.perception.get_effective_vision_for_slot(slot_id))
         occ_grid = self.grid.grid[0]
         agent_grid = self.grid.grid[2]
         H, W = self.grid.H, self.grid.W
@@ -155,6 +157,32 @@ class WorldRenderer:
             end_pos_screen = (wrect.x + end_pos_world[0] + c // 2, wrect.y + end_pos_world[1] + c // 2)
             pygame.draw.line(surf, color, start_pos_screen, end_pos_screen, 1)
 
+    def _draw_catastrophe_overlay(self, surf, wrect, state_data):
+        catastrophe_state = state_data.get("catastrophe_state", {})
+        if not catastrophe_state.get("active_count", 0):
+            return
+
+        overlay = pygame.Surface(wrect.size, pygame.SRCALPHA)
+        overlay.fill((110, 20, 20, 22))
+        surf.blit(overlay, wrect.topleft)
+
+        border_rect = catastrophe_state.get("thorn_march_safe_rect")
+        if border_rect:
+            x1, y1, x2, y2 = border_rect
+            sx1, sy1 = self.cam.world_to_screen(x1, y1)
+            sx2, sy2 = self.cam.world_to_screen(x2 + 1, y2 + 1)
+            pygame.draw.rect(
+                surf,
+                (215, 80, 80),
+                (wrect.x + sx1, wrect.y + sy1, max(1, sx2 - sx1), max(1, sy2 - sy1)),
+                2,
+            )
+
+        woundtide_x = catastrophe_state.get("woundtide_front_x")
+        if woundtide_x is not None:
+            sx, _ = self.cam.world_to_screen(woundtide_x, 0)
+            pygame.draw.line(surf, (220, 70, 120), (wrect.x + sx, wrect.y), (wrect.x + sx, wrect.bottom), 2)
+
 
 class HudPanel:
     def __init__(self, viewer):
@@ -182,6 +210,18 @@ class HudPanel:
         y += 28
         alive_str = f"Alive: {state_data['num_alive']} / {self.viewer.engine.registry.max_agents}"
         surf.blit(self.text.render(alive_str, 16, COLORS["text_dim"]), (x, y))
+
+        catastrophe_state = state_data.get("catastrophe_state", {})
+        if cfg.VIEW.SHOW_CATASTROPHE_STATUS_IN_HUD:
+            mode = catastrophe_state.get("mode", "off")
+            active_names = catastrophe_state.get("active_names", [])
+            next_tick = catastrophe_state.get("next_auto_tick", None)
+            line = f"Catastrophes: {mode}"
+            if active_names:
+                line += " | " + ", ".join(active_names[:2])
+            if next_tick is not None and next_tick >= 0:
+                line += f" | next={next_tick}"
+            surf.blit(self.text.render(line, 13, COLORS["text_warn"]), (x + 220, y))
 
 
 class SidePanel:
@@ -220,24 +260,33 @@ class SidePanel:
 
         y += 8
         y = self._draw_bloodline_legend(surf, x, y)
+        if self.viewer.show_catastrophe_panel:
+            y = self._draw_catastrophe_block(surf, x, y, state_data.get("catastrophe_state", {}))
 
-        y = srect.bottom - 200
+        y = max(y + 10, srect.bottom - 290)
         pygame.draw.line(surf, COLORS["border"], (srect.x, y - 10), (srect.right, y - 10), 2)
         surf.blit(self.text.render("Controls", 18, COLORS["text_header"]), (x, y))
-        y += 30
+        y += 28
 
         controls = [
             "Pan: WASD / Arrows",
             "Zoom: Mouse Wheel",
             "Pause: SPACE",
-            "Speed: +/- (when no zone selected)",
-            "Step (Paused): . (Period)",
+            "Speed: +/- (no zone selected)",
+            "Step (Paused): .",
             "---",
-            "Edit H-Zone Rate: +/- (when zone selected)",
-            "Toggle Rays (R)",
-            "Toggle HP Bars (B)",
-            "Toggle H-Zones (H)",
-            "Toggle Grid (G)",
+            "Edit H-Zone Rate: +/-",
+            "Toggle Rays: R",
+            "Toggle HP Bars: B",
+            "Toggle H-Zones: H",
+            "Toggle Grid: G",
+            "---",
+            "Catastrophe F1..F12: trigger",
+            "Clear active: C",
+            "Cycle mode: Y",
+            "Toggle auto: U",
+            "Status panel: I",
+            "Scheduler pause: O",
         ]
         for line in controls:
             surf.blit(self.text.render(line, 13, COLORS["text_dim"]), (x, y))
@@ -259,6 +308,36 @@ class SidePanel:
 
         return y + 4
 
+    def _draw_catastrophe_block(self, surf, x, y, catastrophe_state: dict):
+        surf.blit(self.text.render("Catastrophes", 16, COLORS["text_header"]), (x, y))
+        y += self.line_height
+        surf.blit(self.text.render(f"Mode: {catastrophe_state.get('mode', 'off')}", 13, COLORS["text_dim"]), (x, y))
+        y += 18
+        surf.blit(self.text.render(f"Scheduler paused: {catastrophe_state.get('scheduler_paused', False)}", 13, COLORS["text_dim"]), (x, y))
+        y += 18
+        next_tick = catastrophe_state.get("next_auto_tick", None)
+        surf.blit(self.text.render(f"Next auto tick: {next_tick}", 13, COLORS["text_dim"]), (x, y))
+        y += 18
+
+        active_names = catastrophe_state.get("active_names", [])
+        if active_names:
+            surf.blit(self.text.render("Active:", 13, COLORS["text_warn"]), (x, y))
+            y += 18
+            for detail in catastrophe_state.get("active_details", [])[:4]:
+                surf.blit(
+                    self.text.render(
+                        f"{detail['display_name']} ({detail['remaining_ticks']}t)",
+                        12,
+                        COLORS["text_harm"],
+                    ),
+                    (x + 8, y),
+                )
+                y += 16
+        else:
+            surf.blit(self.text.render("Active: none", 13, COLORS["text_dim"]), (x, y))
+            y += 18
+        return y + 8
+
     def _draw_hzone_details(self, surf, x, y, hzone_id):
         lh = self.line_height
         zone = self.engine.grid.get_hzone(hzone_id)
@@ -274,21 +353,7 @@ class SidePanel:
         y += lh
         surf.blit(self.text.render(f"Coords: ({zone['x1']}, {zone['y1']}) to ({zone['x2']}, {zone['y2']})", 13, COLORS["text_dim"]), (x, y))
         y += lh
-
-        rate_ratio = (rate + 2.0) / 4.0
-        bar_w = self.viewer.layout.side_rect().width - 2 * 12
-        pygame.draw.rect(surf, COLORS["bar_bg"], (x, y, bar_w, 10))
-        pygame.draw.rect(surf, color, (x, y, bar_w * rate_ratio, 10))
-
-        zero_x = x + (bar_w * (2.0 / 4.0))
-        pygame.draw.line(surf, COLORS["border"], (zero_x, y), (zero_x, y + 10), 1)
-        y += 14
-
-        surf.blit(self.text.render(f"Rate: {rate:.2f} (Range: -2.0 to 2.0)", 13, COLORS["text_dim"]), (x, y))
-        y += lh + 10
-        surf.blit(self.text.render("Use [ - ] and [ + ] keys", 13, COLORS["text_header"]), (x, y))
-        y += lh
-        surf.blit(self.text.render("to change the rate.", 13, COLORS["text_header"]), (x, y))
+        surf.blit(self.text.render(f"Rate: {rate:.2f}", 13, COLORS["text_dim"]), (x, y))
         y += lh
         return y
 
@@ -304,20 +369,6 @@ class SidePanel:
         mass = data[Registry.MASS].item()
         vision = data[Registry.VISION].item()
         metab = data[Registry.METABOLISM_RATE].item()
-        fitness = data[Registry.HP_GAINED].item()
-
-        brain = self.registry.brains[slot_id]
-        param_count_str = "N/A"
-        if brain is not None:
-            try:
-                uncompiled_brain = getattr(brain, "_orig_mod", brain)
-                if hasattr(uncompiled_brain, "get_param_count"):
-                    param_count = uncompiled_brain.get_param_count()
-                    param_count_str = f"{param_count:,}"
-                else:
-                    param_count_str = "N/A (no method)"
-            except Exception:
-                param_count_str = "Error"
 
         lines = []
         if cfg.MIGRATION.VIEWER_SHOW_SLOT_AND_UID:
@@ -326,13 +377,11 @@ class SidePanel:
         lines.append((f"Parent UID: {parent_uid if parent_uid != -1 else 'N/A'}", COLORS["text_dim"]))
         if cfg.MIGRATION.VIEWER_SHOW_BLOODLINE:
             lines.append((f"Bloodline: {family_id}", get_bloodline_base_color(family_id)))
-        lines.append((f"HP: {hp:.2f} / {hp_max:.2f} ({(hp / (hp_max + 1e-6)) * 100:.0f}%)", COLORS["text_dim"]))
+        lines.append((f"HP: {hp:.2f} / {hp_max:.2f}", COLORS["text_dim"]))
         lines.append((f"Position: ({pos_x}, {pos_y})", COLORS["text_dim"]))
         lines.append((f"Mass: {mass:.2f}", COLORS["text_dim"]))
         lines.append((f"Vision: {vision:.1f}", COLORS["text_dim"]))
-        lines.append((f"Metabolism: {metab:.4f} (HP/tick)", COLORS["text_dim"]))
-        lines.append((f"Fitness (Score): {fitness:.2f}", COLORS["text_dim"]))
-        lines.append((f"Brain Params: {param_count_str}", COLORS["text_dim"]))
+        lines.append((f"Metabolism: {metab:.4f}", COLORS["text_dim"]))
         return lines
 
     def _draw_agent_details(self, surf, x, y, slot_id):
@@ -345,12 +394,9 @@ class SidePanel:
         hp_ratio = hp / (hp_max + 1e-6)
         bar_w = self.viewer.layout.side_rect().width - 2 * 12
 
-        for index, (line, color) in enumerate(lines):
-            surf.blit(self.text.render(line, 13 if index != 1 else 16, color), (x, y))
+        for line, color in lines:
+            surf.blit(self.text.render(line, 13, color), (x, y))
             y += lh
-            if line.startswith("Bloodline:"):
-                pygame.draw.rect(surf, color, (x + 250, y - lh + 4, 12, 12))
-                pygame.draw.rect(surf, COLORS["border"], (x + 250, y - lh + 4, 12, 12), 1)
 
         pygame.draw.rect(surf, COLORS["bar_bg"], (x, y, bar_w, 10))
         pygame.draw.rect(surf, COLORS["bar_fg_hp"], (x, y, bar_w * hp_ratio, 10))

@@ -7,6 +7,7 @@ from torch.distributions import Categorical
 
 from ..config_bridge import cfg
 from ..population.respawn_controller import RespawnController
+from .catastrophes import CatastropheManager
 
 
 class Engine:
@@ -29,6 +30,14 @@ class Engine:
         self.logger = logger
 
         self.respawn_controller = RespawnController(self.evolution)
+        self.catastrophes = CatastropheManager(
+            grid=self.grid,
+            registry=self.registry,
+            physics=self.physics,
+            perception=self.perception,
+            respawn_controller=self.respawn_controller,
+            logger=self.logger,
+        )
         self.tick = 0
         self.registry.tick_counter = 0
 
@@ -130,19 +139,8 @@ class Engine:
         update_stats_list = self.ppo.update(self.registry, tick=self.tick)
         self.logger.log_ppo_update(self.tick, update_stats_list)
 
-        if update_stats_list:
-            print(f"Tick {self.tick}: PPO Update performed for {len(update_stats_list)} agents.")
-            for stats in update_stats_list[:2]:
-                print(
-                    f"  UID {stats['agent_uid']} (slot {stats['agent_slot']}, family {stats['family_id']}): "
-                    f"PLoss={stats['policy_loss']:.3f}, "
-                    f"VLoss={stats['value_loss']:.3f}, "
-                    f"KL={stats['kl_div']:.4f}"
-                )
-
     def _maybe_save_snapshots(self) -> None:
         if self.tick > 0 and self.tick % cfg.LOG.SNAPSHOT_EVERY == 0:
-            print(f"--- Tick {self.tick}: Saving snapshot ---")
             self.logger.log_agent_snapshot(self.tick, self.registry)
             self.logger.log_heatmap_snapshot(self.tick, self.grid)
             self.logger.log_brains(self.tick, self.registry)
@@ -153,7 +151,15 @@ class Engine:
 
     def step(self) -> None:
         self.registry.tick_counter = self.tick
+
+        # Prompt 6 deterministic scheduling boundary:
+        # 1) expire / trigger catastrophes
+        # 2) repaint baseline h-zones
+        # 3) layer reversible catastrophe field + runtime modifiers
+        self.catastrophes.pre_tick(self.tick)
         self.grid.paint_hzones()
+        self.catastrophes.apply_world_overrides(self.tick)
+
         alive_indices = self.registry.get_alive_indices()
 
         if len(alive_indices) == 0:
@@ -181,7 +187,12 @@ class Engine:
         self.logger.log_physics_events(self.tick, self.physics.collision_log)
 
         self.physics.apply_environment_effects()
-        self.logger.log_tick_summary(self.tick, self.registry, physics_stats)
+        self.logger.log_tick_summary(
+            self.tick,
+            self.registry,
+            physics_stats,
+            catastrophe_state=self.catastrophes.build_status(self.tick),
+        )
 
         current_hp = self.registry.data[self.registry.HP, alive_indices]
         max_hp = self.registry.data[self.registry.HP_MAX, alive_indices]

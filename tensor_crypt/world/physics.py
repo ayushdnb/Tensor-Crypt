@@ -5,10 +5,9 @@ This module is the referee of the simulation. It takes chosen actions from each
 agent and determines the physically valid outcomes without owning higher-level
 training or respawn policy.
 
-Critical sequencing boundary:
-- this module only resolves movement and environment effects for agents already
-  alive during the tick
-- respawn happens later in the engine, after deaths are processed
+Prompt 6 adds only temporary catastrophe-aware runtime modifiers. The stored
+agent traits remain canonical; catastrophe effects are applied as reversible
+multipliers during the active window only.
 """
 
 import torch
@@ -33,6 +32,26 @@ class Physics:
         self.grid = grid
         self.registry = registry
         self.collision_log = []
+
+        self.collision_damage_multiplier = 1.0
+        self.metabolism_multiplier = 1.0
+        self.mass_metabolism_burden = 0.0
+
+    def reset_runtime_modifiers(self) -> None:
+        self.collision_damage_multiplier = 1.0
+        self.metabolism_multiplier = 1.0
+        self.mass_metabolism_burden = 0.0
+
+    def set_runtime_modifiers(
+        self,
+        *,
+        collision_damage_multiplier: float = 1.0,
+        metabolism_multiplier: float = 1.0,
+        mass_metabolism_burden: float = 0.0,
+    ) -> None:
+        self.collision_damage_multiplier = max(0.0, float(collision_damage_multiplier))
+        self.metabolism_multiplier = max(0.0, float(metabolism_multiplier))
+        self.mass_metabolism_burden = max(0.0, float(mass_metabolism_burden))
 
     def step(self, actions: torch.Tensor) -> dict:
         self.collision_log = []
@@ -95,9 +114,7 @@ class Physics:
                 non_movers.add(idx)
                 continue
 
-            if (tx, ty) not in move_approved:
-                move_approved[(tx, ty)] = []
-            move_approved[(tx, ty)].append(idx)
+            move_approved.setdefault((tx, ty), []).append(idx)
 
         for (tx, ty), contenders in move_approved.items():
             if len(contenders) == 1:
@@ -119,9 +136,12 @@ class Physics:
 
         return stats
 
+    def _damage_scalar(self) -> float:
+        return float(self.collision_damage_multiplier)
+
     def _handle_wall_collision(self, idx: int):
         mass = self.registry.data[self.registry.MASS, idx]
-        damage = mass * cfg.PHYS.K_WALL_PENALTY
+        damage = mass * cfg.PHYS.K_WALL_PENALTY * self._damage_scalar()
         self.registry.data[self.registry.HP, idx] -= damage
         self.registry.data[self.registry.HP_LOST_PHYSICS, idx] += damage
         self.collision_log.append(
@@ -134,17 +154,19 @@ class Physics:
                 "damage_b": float("nan"),
                 "contenders": [],
                 "winner": -1,
+                "catastrophe_collision_scalar": self._damage_scalar(),
             }
         )
 
     def _handle_ram(self, rammer_idx: int, target_idx: int):
         mass_a = self.registry.data[self.registry.MASS, rammer_idx]
+        scalar = self._damage_scalar()
 
-        damage_a = mass_a * cfg.PHYS.K_RAM_PENALTY
+        damage_a = mass_a * cfg.PHYS.K_RAM_PENALTY * scalar
         self.registry.data[self.registry.HP, rammer_idx] -= damage_a
         self.registry.data[self.registry.HP_LOST_PHYSICS, rammer_idx] += damage_a
 
-        damage_b = mass_a * cfg.PHYS.K_IDLE_HIT_PENALTY
+        damage_b = mass_a * cfg.PHYS.K_IDLE_HIT_PENALTY * scalar
         self.registry.data[self.registry.HP, target_idx] -= damage_b
         self.registry.data[self.registry.HP_LOST_PHYSICS, target_idx] += damage_b
 
@@ -158,10 +180,11 @@ class Physics:
                 "damage_b": damage_b.item(),
                 "contenders": [],
                 "winner": -1,
+                "catastrophe_collision_scalar": scalar,
             }
         )
 
-    def _resolve_contest(self, contenders: list) -> int:
+    def _resolve_contest(self, contenders: list[int]) -> int:
         strengths = []
         for idx in contenders:
             mass = self.registry.data[self.registry.MASS, idx]
@@ -173,9 +196,10 @@ class Physics:
 
         strengths.sort(key=lambda value: (-value[0], value[1]))
         winner = strengths[0][1]
+        scalar = self._damage_scalar()
 
         for _, idx in strengths:
-            damage = cfg.PHYS.K_WINNER_DAMAGE if idx == winner else cfg.PHYS.K_LOSER_DAMAGE
+            damage = (cfg.PHYS.K_WINNER_DAMAGE if idx == winner else cfg.PHYS.K_LOSER_DAMAGE) * scalar
             self.registry.data[self.registry.HP, idx] -= damage
             self.registry.data[self.registry.HP_LOST_PHYSICS, idx] += damage
 
@@ -189,6 +213,7 @@ class Physics:
                 "damage_b": float("nan"),
                 "contenders": contenders,
                 "winner": winner,
+                "catastrophe_collision_scalar": scalar,
             }
         )
         return winner
@@ -208,12 +233,16 @@ class Physics:
             idx_int = int(idx.item())
             x = int(self.registry.data[self.registry.X, idx_int].item())
             y = int(self.registry.data[self.registry.Y, idx_int].item())
+
             h_rate = self.grid.get_h_rate(x, y)
             self.registry.data[self.registry.HP, idx_int] += h_rate
             if h_rate > 0:
                 self.registry.data[self.registry.HP_GAINED, idx_int] += h_rate
+
             metab = self.registry.data[self.registry.METABOLISM_RATE, idx_int]
-            self.registry.data[self.registry.HP, idx_int] -= metab
+            mass = self.registry.data[self.registry.MASS, idx_int]
+            effective_metab = (metab * self.metabolism_multiplier) + (mass * self.mass_metabolism_burden)
+            self.registry.data[self.registry.HP, idx_int] -= effective_metab
 
     def process_deaths(self):
         alive_indices = self.registry.get_alive_indices()

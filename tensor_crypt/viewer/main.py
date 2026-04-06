@@ -18,7 +18,7 @@ class Viewer:
         self.engine = engine
         self.Wpix, self.Hpix = cfg.VIEW.WINDOW_WIDTH, cfg.VIEW.WINDOW_HEIGHT
         self.screen = pygame.display.set_mode((self.Wpix, self.Hpix), pygame.RESIZABLE)
-        pygame.display.set_caption("Evolution Simulation (Advanced Viewer)")
+        pygame.display.set_caption("Tensor Crypt")
 
         self.clock = pygame.time.Clock()
         self.text_cache = TextCache()
@@ -38,9 +38,13 @@ class Viewer:
         self.show_hzones = True
         self.show_grid = True
 
+        self.show_catastrophe_panel = cfg.VIEW.SHOW_CATASTROPHE_PANEL
+        self.show_catastrophe_overlay = cfg.VIEW.SHOW_CATASTROPHE_OVERLAY
+
         self.selected_slot_id = None
         self.selected_hzone_id = None
         self.last_selected_uid = -1
+        self._last_catastrophe_visual_version = -1
 
         self.world_renderer = WorldRenderer(self)
         self.hud_panel = HudPanel(self)
@@ -60,7 +64,12 @@ class Viewer:
                     "hp_max": registry.data[registry.HP_MAX, idx].item(),
                     "family_id": registry.get_family_for_slot(idx),
                 }
-            return {"num_alive": len(alive_indices), "agent_map": agent_map}
+            catastrophe_state = self.engine.catastrophes.build_status(self.engine.tick)
+            return {
+                "num_alive": len(alive_indices),
+                "agent_map": agent_map,
+                "catastrophe_state": catastrophe_state,
+            }
 
     def run(self):
         running = True
@@ -81,8 +90,13 @@ class Viewer:
             for _ in range(num_ticks_this_frame):
                 self.engine.step()
 
+            state_data = self._prepare_state_data()
+            visual_version = state_data["catastrophe_state"].get("visual_state_version", 0)
+            if visual_version != self._last_catastrophe_visual_version:
+                self.world_renderer.static_surf = None
+                self._last_catastrophe_visual_version = visual_version
+
             if self.frame_count % render_every_n_frames == 0:
-                state_data = self._prepare_state_data()
                 self.screen.fill(COLORS["bg"])
                 self.world_renderer.draw(self.screen, state_data)
                 self.hud_panel.draw(self.screen, state_data)

@@ -22,6 +22,23 @@ class Perception:
         angles = torch.linspace(0, 2 * math.pi, self.num_rays + 1, device=grid.device)[:-1]
         self.ray_dirs = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
 
+        self.vision_scale = 1.0
+
+    def reset_runtime_modifiers(self) -> None:
+        self.vision_scale = 1.0
+
+    def set_runtime_modifiers(self, *, vision_scale: float = 1.0) -> None:
+        self.vision_scale = max(0.0, float(vision_scale))
+
+    def get_effective_vision_values(self, alive_indices: torch.Tensor) -> torch.Tensor:
+        base = self.registry.data[self.registry.VISION, alive_indices]
+        scaled = base * self.vision_scale
+        return torch.clamp(scaled, min=0.0)
+
+    def get_effective_vision_for_slot(self, slot_idx: int) -> float:
+        base = float(self.registry.data[self.registry.VISION, slot_idx].item())
+        return max(0.0, base * self.vision_scale)
+
     @torch.no_grad()
     def cast_rays_batched(
         self,
@@ -87,8 +104,8 @@ class Perception:
 
         for step in range(1, max_vision + 1):
             step_positions = positions.unsqueeze(1) + ray_dirs * step
-            step_x = step_positions[..., 0].clamp(0, grid_w - 1).long()
-            step_y = step_positions[..., 1].clamp(0, grid_h - 1).long()
+            step_x = step_positions[..., 0].round().clamp(0, grid_w - 1).long()
+            step_y = step_positions[..., 1].round().clamp(0, grid_h - 1).long()
 
             active = step <= vision_ranges.unsqueeze(1)
             if not active.any():
@@ -142,12 +159,22 @@ class Perception:
             return build_empty_observation_batch(self.grid.device, self.num_rays)
 
         positions = self.registry.data[[self.registry.X, self.registry.Y], :][:, alive_indices].T
-        vision_ranges = self.registry.data[self.registry.VISION, alive_indices]
-        canonical_rays = self.cast_rays_batched(positions, vision_ranges, alive_indices)
+        effective_vision_ranges = self.get_effective_vision_values(alive_indices)
+        canonical_rays = self.cast_rays_batched(positions, effective_vision_ranges, alive_indices)
 
-        return build_observation_bundle(
+        obs = build_observation_bundle(
             registry=self.registry,
             grid=self.grid,
             alive_indices=alive_indices,
             canonical_rays=canonical_rays,
         )
+
+        # Prompt 6 fog must affect the intended perception pathway without
+        # mutating the underlying inherited vision trait in registry storage.
+        vision_norm = normalize_from_bounds(
+            effective_vision_ranges,
+            cfg.TRAITS.CLAMP.vision[0],
+            cfg.TRAITS.CLAMP.vision[1],
+        )
+        obs["canonical_self"][:, 3] = vision_norm
+        return obs

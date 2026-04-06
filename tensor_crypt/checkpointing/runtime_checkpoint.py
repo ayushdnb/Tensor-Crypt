@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from ..agents.brain import create_brain, validate_bloodline_family
-from ..agents.state_registry import AgentLifecycleRecord, Registry
+from ..agents.state_registry import AgentLifecycleRecord
 from ..config_bridge import cfg
 from ..learning.ppo import PPO
 
@@ -21,6 +21,7 @@ def _schema_versions_dict(cfg_obj) -> dict:
         "PPO_STATE_SCHEMA_VERSION": cfg_obj.SCHEMA.PPO_STATE_SCHEMA_VERSION,
         "CHECKPOINT_SCHEMA_VERSION": cfg_obj.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
         "REPRODUCTION_SCHEMA_VERSION": cfg_obj.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
+        "CATASTROPHE_SCHEMA_VERSION": cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION,
         "TELEMETRY_SCHEMA_VERSION": cfg_obj.SCHEMA.TELEMETRY_SCHEMA_VERSION,
         "LOGGING_SCHEMA_VERSION": cfg_obj.SCHEMA.LOGGING_SCHEMA_VERSION,
     }
@@ -114,11 +115,19 @@ def capture_runtime_checkpoint(runtime) -> dict:
     if cfg.CHECKPOINT.CAPTURE_SCALER_STATE and runtime.ppo.scaler is not None:
         scaler_state = _clone_nested_cpu(runtime.ppo.scaler.state_dict())
 
+    catastrophe_state = None
+    if cfg.CATASTROPHE.PERSIST_STATE_IN_CHECKPOINTS:
+        catastrophe_state = runtime.engine.catastrophes.serialize()
+
     return {
         "checkpoint_schema_version": cfg.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
         "schema_versions": _schema_versions_dict(cfg),
         "config_snapshot": asdict(cfg),
-        "engine_state": {"tick": int(runtime.engine.tick), "respawn_last_tick": int(runtime.engine.respawn_controller.last_respawn_tick)},
+        "engine_state": {
+            "tick": int(runtime.engine.tick),
+            "respawn_last_tick": int(runtime.engine.respawn_controller.last_respawn_tick),
+            "catastrophe_state": catastrophe_state,
+        },
         "registry_state": {
             "data": registry.data.detach().cpu().clone(),
             "slot_uid": registry.slot_uid.detach().cpu().clone(),
@@ -131,7 +140,11 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "uid_trait_latent": copy.deepcopy(registry.uid_trait_latent),
             "uid_generation_depth": copy.deepcopy(registry.uid_generation_depth),
         },
-        "grid_state": {"grid": runtime.grid.grid.detach().cpu().clone(), "hzones": copy.deepcopy(runtime.grid.hzones), "next_hzone_id": int(runtime.grid.next_hzone_id)},
+        "grid_state": {
+            "grid": runtime.grid.grid.detach().cpu().clone(),
+            "hzones": copy.deepcopy(runtime.grid.hzones),
+            "next_hzone_id": int(runtime.grid.next_hzone_id),
+        },
         "brain_state_by_uid": brain_state_by_uid,
         "brain_metadata_by_uid": brain_metadata_by_uid,
         "ppo_state": {
@@ -149,6 +162,11 @@ def capture_runtime_checkpoint(runtime) -> dict:
 def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
     if int(bundle["checkpoint_schema_version"]) != int(cfg_obj.SCHEMA.CHECKPOINT_SCHEMA_VERSION):
         raise ValueError("Checkpoint schema mismatch")
+
+    schema_versions = bundle.get("schema_versions", {})
+    if int(schema_versions.get("CATASTROPHE_SCHEMA_VERSION", cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION)) != int(cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION):
+        raise ValueError("Checkpoint catastrophe schema mismatch")
+
     registry_state = bundle["registry_state"]
     uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
     uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
@@ -196,13 +214,16 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj) -> None:
     for uid, payload in bundle["ppo_state"]["buffer_state_by_uid"].items():
         PPO.validate_serialized_buffer_payload(int(uid), payload)
 
+    catastrophe_state = bundle["engine_state"].get("catastrophe_state")
+    if catastrophe_state is not None and cfg_obj.CATASTROPHE.STRICT_CHECKPOINT_VALIDATION:
+        if int(catastrophe_state.get("schema_version", cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION)) != int(cfg_obj.SCHEMA.CATASTROPHE_SCHEMA_VERSION):
+            raise ValueError("Checkpoint catastrophe state has wrong schema version")
 
 def _move_optimizer_state_to_device(optimizer, device: str) -> None:
     for state in optimizer.state.values():
         for key, value in state.items():
             if torch.is_tensor(value):
                 state[key] = value.to(device)
-
 
 def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     validate_runtime_checkpoint(bundle, cfg)
@@ -220,7 +241,11 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     registry.uid_parent_roles = {int(uid): {str(k): int(v) for k, v in payload.items()} for uid, payload in registry_state["uid_parent_roles"].items()}
     registry.uid_trait_latent = {int(uid): {str(k): float(v) for k, v in payload.items()} for uid, payload in registry_state["uid_trait_latent"].items()}
     registry.uid_generation_depth = {int(uid): int(depth) for uid, depth in registry_state["uid_generation_depth"].items()}
-    registry.active_uid_to_slot = {uid: record.current_slot for uid, record in registry.uid_lifecycle.items() if record.is_active and record.current_slot is not None}
+    registry.active_uid_to_slot = {
+        uid: record.current_slot
+        for uid, record in registry.uid_lifecycle.items()
+        if record.is_active and record.current_slot is not None
+    }
     registry.slot_family = [None] * registry.max_agents
     registry.brains = [None] * registry.max_agents
 
@@ -261,16 +286,20 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     if rng_state is not None and cfg.CHECKPOINT.CAPTURE_RNG_STATE:
         restore_rng_state(rng_state)
 
+    catastrophe_state = bundle["engine_state"].get("catastrophe_state")
+    if catastrophe_state is not None and cfg.CATASTROPHE.PERSIST_STATE_IN_CHECKPOINTS:
+        runtime.engine.catastrophes.restore(catastrophe_state)
+    else:
+        runtime.engine.catastrophes.reset()
+
     registry.sync_identity_shadow_columns()
     registry.assert_identity_invariants()
     registry.check_invariants(runtime.grid)
-
 
 def save_runtime_checkpoint(path: str | Path, bundle: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(bundle, path)
-
 
 def load_runtime_checkpoint(path: str | Path) -> dict:
     return torch.load(Path(path), map_location="cpu", weights_only=False)

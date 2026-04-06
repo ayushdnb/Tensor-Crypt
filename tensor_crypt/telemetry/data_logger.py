@@ -1,3 +1,5 @@
+"""Logging and artifact persistence for Tensor Crypt."""
+
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +15,8 @@ from ..config_bridge import cfg
 class DataLogger:
     def __init__(self, run_dir: str):
         self.run_dir = Path(run_dir)
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        (self.run_dir / "brains").mkdir(parents=True, exist_ok=True)
         self.hdf_path = self.run_dir / "simulation_data.hdf5"
         self.h5_file = h5py.File(str(self.hdf_path), "w")
         self.h5_snapshots = self.h5_file.create_group("agent_snapshots")
@@ -23,16 +27,19 @@ class DataLogger:
         self.collisions_path = self.run_dir / "collisions.parquet"
         self.ppo_path = self.run_dir / "ppo_events.parquet"
         self.tick_summary_path = self.run_dir / "tick_summary.parquet"
+        self.catastrophes_path = self.run_dir / "catastrophes.parquet"
 
         self.genealogy_writer: Optional[pq.ParquetWriter] = None
         self.collisions_writer: Optional[pq.ParquetWriter] = None
         self.ppo_writer: Optional[pq.ParquetWriter] = None
         self.tick_summary_writer: Optional[pq.ParquetWriter] = None
+        self.catastrophes_writer: Optional[pq.ParquetWriter] = None
 
         self.genealogy_schema: Optional[pa.Schema] = None
         self.collisions_schema: Optional[pa.Schema] = None
         self.ppo_schema: Optional[pa.Schema] = None
         self.tick_summary_schema: Optional[pa.Schema] = None
+        self.catastrophes_schema: Optional[pa.Schema] = None
 
     def _write_parquet(self, df: pd.DataFrame, path: Path, writer_attr: str, schema_attr: str):
         writer = getattr(self, writer_attr)
@@ -54,6 +61,8 @@ class DataLogger:
             self.ppo_writer.close()
         if self.tick_summary_writer:
             self.tick_summary_writer.close()
+        if self.catastrophes_writer:
+            self.catastrophes_writer.close()
 
     def _schema_versions(self) -> dict:
         return {
@@ -61,6 +70,7 @@ class DataLogger:
             "observation": cfg.SCHEMA.OBS_SCHEMA_VERSION,
             "checkpoint": cfg.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
             "reproduction": cfg.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
+            "catastrophe": cfg.SCHEMA.CATASTROPHE_SCHEMA_VERSION,
             "telemetry": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
             "logging": cfg.SCHEMA.LOGGING_SCHEMA_VERSION,
         }
@@ -73,6 +83,7 @@ class DataLogger:
     def log_heatmap_snapshot(self, tick: int, grid):
         self.h5_heatmaps.create_dataset(f"density_tick_{tick}", data=grid.grid[2].cpu().numpy(), compression="gzip")
         self.h5_heatmaps.create_dataset(f"mass_tick_{tick}", data=grid.grid[3].cpu().numpy(), compression="gzip")
+        self.h5_heatmaps.create_dataset(f"h_rate_tick_{tick}", data=grid.grid[1].cpu().numpy(), compression="gzip")
 
     def log_brains(self, tick: int, registry):
         by_uid = {}
@@ -85,7 +96,13 @@ class DataLogger:
             by_uid[uid] = brain.state_dict()
             uid_to_slot[uid] = slot_idx
             family_by_uid[uid] = registry.get_family_for_uid(uid)
-        payload = {"by_uid": by_uid, "uid_to_slot": uid_to_slot, "family_by_uid": family_by_uid, "tick": tick, "schema_versions": self._schema_versions()}
+        payload = {
+            "by_uid": by_uid,
+            "uid_to_slot": uid_to_slot,
+            "family_by_uid": family_by_uid,
+            "tick": tick,
+            "schema_versions": self._schema_versions(),
+        }
         torch.save(payload, str(self.run_dir / "brains" / f"brains_tick_{tick}.pt"))
 
     def log_spawn_event(
@@ -153,9 +170,18 @@ class DataLogger:
         df["tick"] = tick
         self._write_parquet(df, self.ppo_path, "ppo_writer", "ppo_schema")
 
-    def log_tick_summary(self, tick: int, registry, physics_stats: dict):
+    def log_catastrophe_event(self, payload: dict):
+        if not payload:
+            return
+        payload = dict(payload)
+        payload["catastrophe_schema_version"] = cfg.SCHEMA.CATASTROPHE_SCHEMA_VERSION
+        payload["telemetry_schema_version"] = cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION
+        self._write_parquet(pd.DataFrame([payload]), self.catastrophes_path, "catastrophes_writer", "catastrophes_schema")
+
+    def log_tick_summary(self, tick: int, registry, physics_stats: dict, catastrophe_state: dict | None = None):
         alive_mask = registry.get_alive_mask()
         num_alive = int(alive_mask.sum().item())
+        catastrophe_state = catastrophe_state or {}
         if num_alive == 0:
             stats = {"tick": tick, "num_alive": 0}
         else:
@@ -167,6 +193,11 @@ class DataLogger:
                 "avg_vision": registry.data[registry.VISION, alive_mask].mean().item(),
                 "total_hp_gained": registry.data[registry.HP_GAINED, alive_mask].sum().item(),
                 "total_physics_dmg": registry.data[registry.HP_LOST_PHYSICS, alive_mask].sum().item(),
+                "catastrophe_mode": catastrophe_state.get("mode"),
+                "catastrophe_active_count": catastrophe_state.get("active_count", 0),
+                "catastrophe_active_names": "|".join(catastrophe_state.get("active_names", [])),
+                "catastrophe_next_tick": catastrophe_state.get("next_auto_tick", -1),
+                "catastrophe_paused": catastrophe_state.get("scheduler_paused", False),
                 **physics_stats,
             }
         self._write_parquet(pd.DataFrame([stats]), self.tick_summary_path, "tick_summary_writer", "tick_summary_schema")

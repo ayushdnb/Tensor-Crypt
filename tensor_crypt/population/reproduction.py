@@ -87,12 +87,25 @@ def trait_values_from_latent(latent: dict[str, float]) -> dict[str, float]:
     }
 
 
-def mutate_trait_latent(parent_latent: dict[str, float]) -> tuple[dict[str, float], BirthMutationFlags]:
+def mutate_trait_latent(
+    parent_latent: dict[str, float],
+    mutation_overrides: dict[str, float] | None = None,
+) -> tuple[dict[str, float], BirthMutationFlags]:
     child = dict(parent_latent)
-    rare = random.random() < float(cfg.EVOL.RARE_MUT_PROB)
+    mutation_overrides = mutation_overrides or {}
 
-    logit_sigma = cfg.EVOL.RARE_TRAIT_LOGIT_MUTATION_SIGMA if rare else cfg.EVOL.TRAIT_LOGIT_MUTATION_SIGMA
-    budget_sigma = cfg.EVOL.RARE_TRAIT_BUDGET_MUTATION_SIGMA if rare else cfg.EVOL.TRAIT_BUDGET_MUTATION_SIGMA
+    rare_prob_scale = float(mutation_overrides.get("rare_prob_scalar", 1.0))
+    rare = random.random() < float(cfg.EVOL.RARE_MUT_PROB) * rare_prob_scale
+
+    logit_sigma_scalar = float(mutation_overrides.get("trait_sigma_scalar", 1.0))
+    budget_sigma_scalar = float(mutation_overrides.get("budget_sigma_scalar", 1.0))
+
+    logit_sigma = (
+        cfg.EVOL.RARE_TRAIT_LOGIT_MUTATION_SIGMA if rare else cfg.EVOL.TRAIT_LOGIT_MUTATION_SIGMA
+    ) * logit_sigma_scalar
+    budget_sigma = (
+        cfg.EVOL.RARE_TRAIT_BUDGET_MUTATION_SIGMA if rare else cfg.EVOL.TRAIT_BUDGET_MUTATION_SIGMA
+    ) * budget_sigma_scalar
 
     for key in ("z_hp", "z_mass", "z_vision", "z_metab"):
         child[key] = float(child[key]) + random.gauss(0.0, float(logit_sigma))
@@ -102,12 +115,21 @@ def mutate_trait_latent(parent_latent: dict[str, float]) -> tuple[dict[str, floa
         min(cfg.TRAITS.BUDGET.MAX_BUDGET, float(child["budget"]) + random.gauss(0.0, float(budget_sigma))),
     )
 
-    family_shift = bool(cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION and random.random() < float(cfg.EVOL.FAMILY_SHIFT_PROB))
+    family_shift_prob_scale = float(mutation_overrides.get("family_shift_scalar", 1.0))
+    family_shift = bool(
+        cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION
+        and random.random() < float(cfg.EVOL.FAMILY_SHIFT_PROB) * family_shift_prob_scale
+    )
     return child, BirthMutationFlags(rare_mutation=rare, family_shift=family_shift)
 
 
-def policy_noise_sigma(flags: BirthMutationFlags) -> float:
-    return float(cfg.EVOL.RARE_POLICY_NOISE_SD if flags.rare_mutation else cfg.EVOL.POLICY_NOISE_SD)
+def policy_noise_sigma(
+    flags: BirthMutationFlags,
+    mutation_overrides: dict[str, float] | None = None,
+) -> float:
+    mutation_overrides = mutation_overrides or {}
+    scalar = float(mutation_overrides.get("policy_noise_scalar", 1.0))
+    return float((cfg.EVOL.RARE_POLICY_NOISE_SD if flags.rare_mutation else cfg.EVOL.POLICY_NOISE_SD) * scalar)
 
 
 def pick_shifted_family(current_family: str) -> str:

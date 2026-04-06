@@ -273,6 +273,11 @@ class ViewerConfig:
     SHOW_BLOODLINE_LEGEND: bool = True
     BLOODLINE_LOW_HP_SHADE: float = 0.35
 
+    # Prompt 6 viewer catastrophe surfaces.
+    SHOW_CATASTROPHE_PANEL: bool = True
+    SHOW_CATASTROPHE_OVERLAY: bool = True
+    SHOW_CATASTROPHE_STATUS_IN_HUD: bool = True
+
 
 @dataclass
 class LogConfig:
@@ -298,10 +303,11 @@ class SchemaConfig:
     IDENTITY_SCHEMA_VERSION: int = 1
     OBS_SCHEMA_VERSION: int = 2
     PPO_STATE_SCHEMA_VERSION: int = 1
-    CHECKPOINT_SCHEMA_VERSION: int = 4
+    CHECKPOINT_SCHEMA_VERSION: int = 5
     REPRODUCTION_SCHEMA_VERSION: int = 2
-    TELEMETRY_SCHEMA_VERSION: int = 2
-    LOGGING_SCHEMA_VERSION: int = 3
+    CATASTROPHE_SCHEMA_VERSION: int = 1
+    TELEMETRY_SCHEMA_VERSION: int = 3
+    LOGGING_SCHEMA_VERSION: int = 4
 
 
 @dataclass
@@ -330,6 +336,115 @@ class MigrationConfig:
 
 
 @dataclass
+class CatastropheConfig:
+    ENABLED: bool = True
+    DEFAULT_MODE: str = "auto_dynamic"  # off | manual_only | auto_dynamic | auto_static
+    MANUAL_TRIGGER_ENABLED: bool = True
+    MANUAL_CLEAR_ENABLED: bool = True
+
+    ALLOW_OVERLAP: bool = False
+    MAX_CONCURRENT: int = 1
+
+    AUTO_DYNAMIC_GAP_MIN_TICKS: int = 240
+    AUTO_DYNAMIC_GAP_MAX_TICKS: int = 540
+    AUTO_DYNAMIC_SAMPLE_DURATION: bool = True
+
+    AUTO_STATIC_INTERVAL_TICKS: int = 420
+    AUTO_STATIC_ORDERING_POLICY: str = "round_robin"  # round_robin | configured_sequence | fixed_priority
+    AUTO_STATIC_SEQUENCE: List[str] = field(
+        default_factory=lambda: [
+            "ashfall_of_nocthar",
+            "veil_of_somnyr",
+            "the_hollow_fast",
+            "graveweight",
+            "glass_requiem",
+            "the_witchstorm",
+            "the_thorn_march",
+            "the_barren_hymn",
+        ]
+    )
+
+    DEFAULT_DURATION_TICKS: int = 180
+    MIN_DURATION_TICKS: int = 60
+    MAX_DURATION_TICKS: int = 480
+    PER_TYPE_DURATION_TICKS: Dict[str, int] = field(
+        default_factory=lambda: {
+            "ashfall_of_nocthar": 160,
+            "sanguine_bloom": 180,
+            "the_woundtide": 180,
+            "the_hollow_fast": 200,
+            "mirror_of_thorns": 160,
+            "veil_of_somnyr": 220,
+            "graveweight": 200,
+            "glass_requiem": 160,
+            "the_witchstorm": 180,
+            "the_thorn_march": 240,
+            "the_barren_hymn": 120,
+            "crimson_deluge": 180,
+        }
+    )
+
+    TYPE_ENABLED: Dict[str, bool] = field(
+        default_factory=lambda: {
+            "ashfall_of_nocthar": True,
+            "sanguine_bloom": True,
+            "the_woundtide": True,
+            "the_hollow_fast": True,
+            "mirror_of_thorns": True,
+            "veil_of_somnyr": True,
+            "graveweight": True,
+            "glass_requiem": True,
+            "the_witchstorm": True,
+            "the_thorn_march": True,
+            "the_barren_hymn": True,
+            "crimson_deluge": True,
+        }
+    )
+
+    TYPE_SELECTION_WEIGHTS: Dict[str, float] = field(
+        default_factory=lambda: {
+            "ashfall_of_nocthar": 1.0,
+            "sanguine_bloom": 1.0,
+            "the_woundtide": 1.0,
+            "the_hollow_fast": 1.0,
+            "mirror_of_thorns": 1.0,
+            "veil_of_somnyr": 1.2,
+            "graveweight": 0.9,
+            "glass_requiem": 0.9,
+            "the_witchstorm": 0.8,
+            "the_thorn_march": 0.7,
+            "the_barren_hymn": 0.6,
+            "crimson_deluge": 0.9,
+        }
+    )
+
+    # Prompt 6 catastrophe intensity and scheduler knobs.
+    TYPE_PARAMS: Dict[str, Dict[str, float]] = field(
+        default_factory=lambda: {
+            "ashfall_of_nocthar": {"positive_zone_fraction": 0.65},
+            "sanguine_bloom": {"zone_fraction": 0.45, "negative_rate": -1.5},
+            "the_woundtide": {"front_half_width": 5.0, "negative_rate": -2.0},
+            "the_hollow_fast": {"positive_scalar": 0.25},
+            "mirror_of_thorns": {"zone_fraction": 0.50},
+            "veil_of_somnyr": {"vision_scalar": 0.45},
+            "graveweight": {"metabolism_scalar": 1.65, "mass_burden_scalar": 0.06},
+            "glass_requiem": {"collision_damage_scalar": 1.8},
+            "the_witchstorm": {"trait_sigma_scalar": 2.0, "budget_sigma_scalar": 2.0, "policy_noise_scalar": 2.0, "rare_prob_scalar": 3.0, "family_shift_scalar": 4.0},
+            "the_thorn_march": {"negative_rate": -2.0, "max_shrink_fraction": 0.35},
+            "the_barren_hymn": {"reproduction_enabled": 0.0},
+            "crimson_deluge": {"patch_count": 3.0, "patch_size_fraction": 0.18, "negative_rate": -2.5},
+        }
+    )
+
+    VIEWER_CONTROLS_ENABLED: bool = True
+    VIEWER_OVERLAY_ENABLED: bool = True
+
+    PERSIST_STATE_IN_CHECKPOINTS: bool = True
+    STRICT_CHECKPOINT_VALIDATION: bool = True
+    RNG_STREAM_OFFSET: int = 911
+
+
+@dataclass
 class Config:
     SIM: SimConfig = field(default_factory=SimConfig)
     GRID: GridConfig = field(default_factory=GridConfig)
@@ -348,6 +463,67 @@ class Config:
     SCHEMA: SchemaConfig = field(default_factory=SchemaConfig)
     CHECKPOINT: CheckpointConfig = field(default_factory=CheckpointConfig)
     MIGRATION: MigrationConfig = field(default_factory=MigrationConfig)
+    CATASTROPHE: CatastropheConfig = field(default_factory=CatastropheConfig)
 
 
 cfg = Config()
+
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+OUT_FILE = BASE_DIR / "codes" / "evolution.txt"
+
+# Folders to ignore anywhere in the path.
+IGNORE_DIRS = {
+    "__pycache__",
+    ".git",
+    ".hg",
+    ".svn",
+    "venv",
+    ".venv",
+    "env",
+    ".env",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".pytest_tmp",
+    "build",
+    "dist",
+    "audit_tmp",
+}
+
+
+def should_ignore(path: Path) -> bool:
+    return any(part in IGNORE_DIRS for part in path.parts)
+
+
+def main() -> None:
+    OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    py_files = sorted(
+        (
+            path
+            for path in BASE_DIR.rglob("*.py")
+            if path.is_file() and not should_ignore(path.relative_to(BASE_DIR))
+        ),
+        key=lambda path: str(path.relative_to(BASE_DIR)).lower(),
+    )
+
+    with OUT_FILE.open("w", encoding="utf-8", errors="replace") as out:
+        for index, path in enumerate(py_files):
+            try:
+                code = path.read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                code = f"# [ERROR READING FILE: {exc}]\n"
+
+            out.write(code)
+
+            if index < len(py_files) - 1:
+                if not code.endswith("\n"):
+                    out.write("\n")
+                out.write("\n")
+
+    print(f"Done. Wrote raw code from {len(py_files)} .py files into:\n{OUT_FILE}")
+
+
+if __name__ == "__main__":
+    main()

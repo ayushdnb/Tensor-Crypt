@@ -8,6 +8,42 @@ class InputHandler:
         self.cam = viewer.cam
         self.engine = viewer.engine
 
+    def _handle_catastrophe_hotkey(self, ev) -> None:
+        if not cfg.CATASTROPHE.VIEWER_CONTROLS_ENABLED:
+            return
+
+        key_to_idx = {
+            pygame.K_F1: 0,
+            pygame.K_F2: 1,
+            pygame.K_F3: 2,
+            pygame.K_F4: 3,
+            pygame.K_F5: 4,
+            pygame.K_F6: 5,
+            pygame.K_F7: 6,
+            pygame.K_F8: 7,
+            pygame.K_F9: 8,
+            pygame.K_F10: 9,
+            pygame.K_F11: 10,
+            pygame.K_F12: 11,
+        }
+        if ev.key in key_to_idx:
+            self.engine.catastrophes.manual_trigger_by_index(key_to_idx[ev.key], self.engine.tick)
+            self.viewer.world_renderer.static_surf = None
+            return
+
+        if ev.key == pygame.K_c:
+            self.engine.catastrophes.manual_clear(self.engine.tick)
+            self.viewer.world_renderer.static_surf = None
+        elif ev.key == pygame.K_y:
+            self.engine.catastrophes.cycle_mode()
+        elif ev.key == pygame.K_u:
+            self.engine.catastrophes.toggle_auto_enable()
+        elif ev.key == pygame.K_i:
+            self.viewer.show_catastrophe_panel = not self.viewer.show_catastrophe_panel
+            self.viewer.show_catastrophe_overlay = self.viewer.show_catastrophe_panel
+        elif ev.key == pygame.K_o:
+            self.engine.catastrophes.toggle_scheduler_pause()
+
     def handle(self):
         running = True
         advance_tick = False
@@ -67,6 +103,8 @@ class InputHandler:
                     self.viewer.world_renderer.static_surf = None
                 elif ev.key == pygame.K_g:
                     self.viewer.show_grid = not self.viewer.show_grid
+                else:
+                    self._handle_catastrophe_hotkey(ev)
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if wrect.collidepoint(ev.pos):
                     if ev.button == 1:

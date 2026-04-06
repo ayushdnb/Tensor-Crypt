@@ -19,13 +19,29 @@ from .reproduction import (
 
 
 class RespawnController:
-    """Prompt 5 binary reproduction controller."""
+    """Prompt 5 binary reproduction controller with Prompt 6 catastrophe gates."""
 
     def __init__(self, evolution):
         self.evolution = evolution
         self.respawn_period = cfg.RESPAWN.RESPAWN_PERIOD
         self.max_spawns_per_cycle = cfg.RESPAWN.MAX_SPAWNS_PER_CYCLE
         self.last_respawn_tick = 0
+
+        self.reproduction_enabled_override = True
+        self.mutation_overrides: dict[str, float] = {}
+
+    def reset_runtime_modifiers(self) -> None:
+        self.reproduction_enabled_override = True
+        self.mutation_overrides = {}
+
+    def set_runtime_modifiers(
+        self,
+        *,
+        reproduction_enabled: bool = True,
+        mutation_overrides: dict[str, float] | None = None,
+    ) -> None:
+        self.reproduction_enabled_override = bool(reproduction_enabled)
+        self.mutation_overrides = dict(mutation_overrides or {})
 
     def _handle_extinction(self, tick: int, registry, grid, dead_slots: list[int], logger: Optional[DataLogger]) -> int:
         policy = str(cfg.RESPAWN.EXTINCTION_POLICY)
@@ -79,6 +95,9 @@ class RespawnController:
         return spawns
 
     def step(self, tick: int, registry, grid, logger: Optional[DataLogger] = None):
+        if not self.reproduction_enabled_override:
+            return
+
         num_alive = registry.get_num_alive()
         floor = cfg.RESPAWN.POPULATION_FLOOR
         ceiling = cfg.RESPAWN.POPULATION_CEILING
@@ -145,7 +164,7 @@ class RespawnController:
                 continue
 
             trait_parent_latent = registry.get_trait_latent_for_uid(parent_roles.trait_parent_uid)
-            child_latent, mutation_flags = mutate_trait_latent(trait_parent_latent)
+            child_latent, mutation_flags = mutate_trait_latent(trait_parent_latent, mutation_overrides=self.mutation_overrides)
             mapped = trait_values_from_latent(child_latent)
             traits = {"mass": mapped["mass"], "hp_max": mapped["hp_max"], "vision": mapped["vision"], "metab": mapped["metab"]}
 
@@ -159,7 +178,7 @@ class RespawnController:
                 parent_brain = registry.brains[brain_parent_slot]
                 if parent_brain is not None:
                     child_brain.load_state_dict(parent_brain.state_dict())
-            self.evolution._apply_policy_noise(child_brain, sigma=policy_noise_sigma(mutation_flags))
+            self.evolution._apply_policy_noise(child_brain, sigma=policy_noise_sigma(mutation_flags, mutation_overrides=self.mutation_overrides))
 
             child_uid = registry.spawn_agent(
                 slot_idx,
