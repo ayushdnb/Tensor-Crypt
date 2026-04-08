@@ -79,7 +79,7 @@ def test_invalid_minibatch_configuration_raises_clear_error():
         ppo.store_transition(uid, obs, torch.tensor(0), torch.tensor(0.0), torch.tensor(1.0), torch.tensor(0.0), torch.tensor(0.0))
 
     with pytest.raises(ValueError, match="cannot exceed trajectory batch size"):
-        ppo.update(registry, None, {}, {})
+        ppo.update(registry, None, {uid: obs}, {uid: torch.tensor(0.0)})
 
 
 def test_update_trains_and_clears_buffer():
@@ -102,9 +102,46 @@ def test_update_trains_and_clears_buffer():
     for _ in range(2):
         ppo.store_transition(uid, obs, torch.tensor(0), torch.tensor(0.0), torch.tensor(1.0), torch.tensor(0.0), torch.tensor(0.0))
 
-    stats = ppo.update(registry, None, {}, {})
+    stats = ppo.update(registry, None, {uid: obs}, {uid: torch.tensor(0.0)})
 
     assert len(stats) == 1
     assert stats[0]["agent_uid"] == uid
     assert stats[0]["agent_slot"] == 0
     assert len(ppo.buffers_by_uid[uid]) == 0
+
+
+def test_ppo_approx_kl_uses_old_minus_new_log_prob_sign():
+    ppo = PPO()
+    old_log_probs = torch.tensor([-0.2, -0.4])
+    new_log_probs = torch.tensor([-1.2, -1.4])
+
+    approx_kl = ppo._approx_kl(old_log_probs, new_log_probs)
+
+    assert float(approx_kl.item()) == pytest.approx(1.0)
+
+
+def test_buffer_validation_rejects_non_finite_transition_values():
+    cfg.SIM.DEVICE = "cpu"
+    cfg.LOG.AMP = False
+    cfg.GRID.W = 6
+    cfg.GRID.H = 6
+    cfg.AGENTS.N = 1
+
+    ppo = PPO()
+    grid = Grid()
+    registry = Registry()
+    uid = registry.spawn_agent(0, 2, 2, -1, grid)
+    obs = _make_obs()
+    ppo.store_transition(
+        uid,
+        obs,
+        torch.tensor(0),
+        torch.tensor(0.0),
+        torch.tensor(float("nan")),
+        torch.tensor(0.0),
+        torch.tensor(0.0),
+    )
+
+    with pytest.raises(ValueError, match="non-finite rewards tensor"):
+        ppo.buffers_by_uid[uid].validate()
+

@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 import torch
 
 from tensor_crypt.config_bridge import cfg

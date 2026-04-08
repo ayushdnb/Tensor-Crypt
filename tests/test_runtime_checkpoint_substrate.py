@@ -45,3 +45,12 @@ def test_checkpoint_validation_rejects_duplicate_active_uid(runtime_builder):
     with pytest.raises(ValueError, match="Duplicate active UID"):
         validate_runtime_checkpoint(bundle, cfg)
 
+
+def test_checkpoint_validation_rejects_brain_topology_signature_mismatch(runtime_builder):
+    runtime = runtime_builder(seed=203, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    bundle = capture_runtime_checkpoint(runtime)
+    uid = next(iter(bundle["brain_metadata_by_uid"].keys()))
+    bundle["brain_metadata_by_uid"][uid]["topology_signature"] = [["bad.weight", [1, 2, 3]]]
+
+    with pytest.raises(ValueError, match="topology signature"):
+        validate_runtime_checkpoint(bundle, cfg)

@@ -105,3 +105,63 @@ def test_process_deaths_clears_grid_cells():
     assert deaths == [0]
     assert registry.data[registry.ALIVE, 0].item() == 0.0
     assert grid.get_agent_at(2, 2) == -1
+
+
+def test_contested_move_into_occupied_cell_does_not_create_duplicate_positions():
+    cfg.SIM.DEVICE = "cpu"
+    cfg.GRID.W = 8
+    cfg.GRID.H = 8
+    cfg.AGENTS.N = 10
+
+    grid = Grid()
+    registry = Registry()
+    _spawn(registry, grid, 5, 4, 3, mass=1.0, hp=20.0, hp_max=20.0)
+    _spawn(registry, grid, 6, 4, 4, mass=3.0, hp=20.0, hp_max=20.0)
+    _spawn(registry, grid, 9, 3, 3, mass=2.0, hp=20.0, hp_max=20.0)
+    physics = Physics(grid, registry)
+
+    actions = torch.zeros(registry.max_agents, dtype=torch.long)
+    actions[5] = 7
+    actions[6] = 8
+    actions[9] = 3
+    physics.step(actions)
+
+    alive_positions = {
+        slot_idx: (
+            int(registry.data[registry.X, slot_idx].item()),
+            int(registry.data[registry.Y, slot_idx].item()),
+        )
+        for slot_idx in registry.get_alive_indices().tolist()
+    }
+
+    assert len(set(alive_positions.values())) == len(alive_positions)
+    assert alive_positions[5] == (4, 3)
+    assert alive_positions[6] == (4, 4)
+    assert alive_positions[9] == (3, 3)
+    assert grid.get_agent_at(4, 3) == 5
+    assert grid.get_agent_at(4, 4) == 6
+    assert grid.get_agent_at(3, 3) == 9
+
+
+def test_random_seeded_tie_breaker_is_deterministic():
+    cfg.SIM.SEED = 77
+    cfg.SIM.DEVICE = "cpu"
+    cfg.GRID.W = 8
+    cfg.GRID.H = 8
+    cfg.AGENTS.N = 2
+    cfg.PHYS.TIE_BREAKER = "random_seeded"
+
+    def run_once() -> int:
+        grid = Grid()
+        registry = Registry()
+        _spawn(registry, grid, 0, 2, 3, mass=2.0, hp=10.0, hp_max=10.0)
+        _spawn(registry, grid, 1, 4, 3, mass=2.0, hp=10.0, hp_max=10.0)
+        registry.tick_counter = 5
+        physics = Physics(grid, registry)
+        actions = torch.zeros(registry.max_agents, dtype=torch.long)
+        actions[0] = 3
+        actions[1] = 7
+        physics.step(actions)
+        return int(physics.collision_log[0]["winner"])
+
+    assert run_once() == run_once()

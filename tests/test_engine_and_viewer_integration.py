@@ -57,3 +57,43 @@ def test_viewer_draw_smoke_handles_dead_selection_and_hzone_selection(runtime_bu
     viewer.selected_hzone_id = runtime.grid.hzones[0]["id"]
     viewer.world_renderer.draw(surface, state_data)
     viewer.side_panel.draw(surface, state_data)
+
+
+
+def test_engine_reward_clamps_negative_health_before_squaring(runtime_builder):
+    runtime = runtime_builder(seed=43, width=10, height=10, agents=2, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    slot = int(runtime.registry.get_alive_indices()[0].item())
+    captured = {}
+
+    original_store = runtime.ppo.store_transition_for_slot
+
+    def wrapped_store(registry, slot_idx, obs, action, log_prob, reward, value, done):
+        if slot_idx == slot:
+            captured["reward"] = float(reward.item())
+        return original_store(registry, slot_idx, obs, action, log_prob, reward, value, done)
+
+    runtime.ppo.store_transition_for_slot = wrapped_store
+    runtime.physics.step = lambda actions: {"wall_collisions": 0, "rams": 0, "contests": 0}
+
+    def force_negative_hp():
+        runtime.registry.data[runtime.registry.HP, slot] = -5.0
+
+    runtime.physics.apply_environment_effects = force_negative_hp
+    runtime.engine.step()
+
+    assert captured["reward"] == 0.0
+
+
+
+def test_viewer_resize_event_updates_camera_world_rect(runtime_builder):
+    runtime = runtime_builder(seed=42, width=12, height=12, agents=4, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
+
+    pygame.event.post(pygame.event.Event(pygame.VIDEORESIZE, {"w": 1400, "h": 900}))
+    running, advance_tick = viewer.input_handler.handle()
+    world_rect = viewer.layout.world_rect()
+
+    assert running is True
+    assert advance_tick is False
+    assert viewer.cam.screen_width == world_rect.width
+    assert viewer.cam.screen_height == world_rect.height

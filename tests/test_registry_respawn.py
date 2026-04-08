@@ -1,3 +1,4 @@
+import pytest
 from tensor_crypt.config_bridge import cfg
 from tensor_crypt.agents.state_registry import Registry
 from tensor_crypt.world.spatial_grid import Grid
@@ -61,7 +62,7 @@ def test_respawn_inherits_parent_brain_for_slot_without_existing_brain(runtime_b
     assert max_diff == 0.0
 
 
-def test_extinction_path_respawns_from_default_traits(runtime_builder):
+def test_extinction_path_raises_under_fail_run_policy(runtime_builder):
     runtime = runtime_builder(seed=23, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
     registry = runtime.registry
 
@@ -70,12 +71,5 @@ def test_extinction_path_respawns_from_default_traits(runtime_builder):
         registry.mark_dead(idx, runtime.grid)
     runtime.evolution.process_deaths(dead_slots, runtime.ppo, death_tick=0)
 
-    runtime.engine.step()
-
-    alive = registry.get_alive_indices().tolist()
-    assert len(alive) == cfg.RESPAWN.MAX_SPAWNS_PER_CYCLE
-    for idx in alive:
-        assert int(registry.data[registry.TICK_BORN, idx].item()) == 1
-        assert registry.get_parent_uid_for_slot(idx) == -1
-        assert registry.data[registry.MASS, idx].item() == cfg.TRAITS.INIT.mass
-        assert registry.data[registry.HP_MAX, idx].item() == cfg.TRAITS.INIT.hp_max
+    with pytest.raises(RuntimeError, match="Population dropped below two live agents|binary reproduction is impossible"):
+        runtime.engine.step()

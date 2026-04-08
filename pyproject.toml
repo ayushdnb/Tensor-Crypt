@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tensor-crypt"
+version = "0.1.0"
+description = "Tensor Crypt simulation runtime"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "h5py",
+  "numpy",
+  "pandas",
+  "psutil",
+  "pyarrow",
+  "pygame",
+  "torch",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+tensor-crypt = "tensor_crypt.app.launch:main"
+
+[tool.setuptools]
+py-modules = ["config", "main", "run"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["tensor_crypt*", "engine*", "viewer*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --basetemp=.pytest_tmp"

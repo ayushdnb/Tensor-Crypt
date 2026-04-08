@@ -1,5 +1,3 @@
-import math
-
 import torch
 
 from tensor_crypt.agents.brain import Brain
@@ -42,7 +40,7 @@ def test_perception_self_exclusion_and_cardinal_walls_use_one_hot():
 
     grid = Grid()
     registry = Registry()
-    registry.spawn_agent(0, 8, 8, -1, grid)
+    registry.spawn_agent(0, 8, 8, -1, grid, traits={"mass": 2.0, "vision": 16.0, "hp_max": 10.0, "metab": 0.0})
     perception = Perception(grid, registry)
 
     obs = perception.build_observations(registry.get_alive_indices())
@@ -154,3 +152,26 @@ def test_distance_to_center_and_bridge_fields_are_correct():
     logits, value = brain(obs)
     assert logits.shape == (1, 9)
     assert value.shape == (1, 1)
+
+
+def test_legacy_only_observation_surface_still_supports_brain_forward():
+    cfg.SIM.DEVICE = "cpu"
+    cfg.GRID.W = 10
+    cfg.GRID.H = 10
+    cfg.AGENTS.N = 1
+    cfg.PERCEPT.NUM_RAYS = 8
+    cfg.PERCEPT.RETURN_CANONICAL_OBSERVATIONS = False
+    cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK = True
+
+    grid = Grid()
+    registry = Registry()
+    registry.spawn_agent(0, 5, 5, -1, grid)
+    perception = Perception(grid, registry)
+
+    obs = perception.build_observations(registry.get_alive_indices())
+
+    assert set(obs.keys()) == {"rays", "state", "genome", "position", "context"}
+    brain = Brain().to("cpu")
+    logits, value = brain(obs)
+    assert logits.shape == (1, cfg.BRAIN.ACTION_DIM)
+    assert value.shape == (1, cfg.BRAIN.VALUE_DIM)

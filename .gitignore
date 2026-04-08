@@ -11,22 +11,29 @@ env/
 ENV/
 .env
 .env.*
+.python-version
+.direnv/
 
 # Test and tooling caches
 .pytest_cache/
 .pytest_tmp/
+.pytest_tmp*/
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
 .tox/
 .nox/
+.cache/
+pip-wheel-metadata/
 
 # Editors and IDEs
 .vscode/
 .idea/
+.agent/
 
 # Notebooks
 .ipynb_checkpoints/
@@ -35,12 +42,22 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+site/
 
 # Logs and local runtime output
 *.log
+artifacts/
 logs/
 audit_tmp/
+audit_runs*/
 codes/
+outputs/
+results/
+checkpoints/
+renders/
+videos/
+tmp/
+temp/
 
 # Operating system files
 .DS_Store
