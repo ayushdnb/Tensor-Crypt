@@ -1,9 +1,9 @@
 """
-Repository-root namespace shim for the Tensor Crypt implementation package.
+Repository-root namespace bridge for the Tensor Crypt implementation package.
 
-The canonical implementation now lives in `src/tensor_crypt`. This shim keeps
-`import tensor_crypt.*` working when running directly from repository root
-without requiring users/tests to alter their import paths.
+The canonical implementation lives in `src/tensor_crypt`. This module keeps
+`import tensor_crypt.*` working from a source checkout without requiring users
+or tests to modify their import paths.
 """
 
 from __future__ import annotations

@@ -5,13 +5,13 @@ This module is the referee of the simulation. It takes chosen actions from each
 agent and determines the physically valid outcomes without owning higher-level
 training or respawn policy.
 
-Prompt 6 adds only temporary catastrophe-aware runtime modifiers. The stored
-agent traits remain canonical; catastrophe effects are applied as reversible
-multipliers during the active window only.
+Catastrophe-aware runtime modifiers are temporary. The stored agent traits
+remain canonical; catastrophe effects are applied as reversible multipliers
+during the active window only.
 
-Prompt 7 adds explicit death-cause bookkeeping. The bookkeeping is diagnostic
-only; it does not change any damage amount, movement resolution, or survival
-semantics.
+Death-cause bookkeeping is diagnostic only; it does not change any damage
+amount, movement resolution, or survival semantics.
+
 """
 
 from __future__ import annotations

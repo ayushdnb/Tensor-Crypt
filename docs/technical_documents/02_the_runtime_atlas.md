@@ -1,6 +1,6 @@
 # The Runtime Atlas
 
-This document is the architecture-truth file for Tensor Crypt. Its purpose is to explain how one run is actually assembled, which subsystem owns which category of state, where execution order becomes semantically important, and which invariants a maintainer must preserve when changing internals. It treats the code dump as implementation truth and concentrates on ownership, lifecycle, and state flow rather than beginner intuition, mathematics, or operator workflow.
+This document is the architecture-truth file for Tensor Crypt. Its purpose is to explain how one run is actually assembled, which subsystem owns which category of state, where execution order becomes semantically important, and which invariants a maintainer must preserve when changing internals. It treats the current codebase as implementation truth and concentrates on ownership, lifecycle, and state flow rather than beginner intuition, mathematics, or operator workflow.
 
 ## What this file teaches
 
@@ -36,7 +36,7 @@ The repository keeps a small public surface at root and pushes real implementati
 | `run.py` | obvious public launch surface | delegates to `tensor_crypt.app.launch.main()` |
 | `main.py` | alternate public launch surface | also delegates to `tensor_crypt.app.launch.main()` |
 | root `engine` package stub | legacy import compatibility | extends import path so imports such as `engine.physics` continue to resolve into `src/engine` thin re-exports |
-| root `tensor_crypt` namespace shim | implementation-package compatibility | extends import path so `import tensor_crypt.*` works from repository root while canonical code lives under `src/tensor_crypt` |
+| root `tensor_crypt` namespace bridge | implementation-package compatibility | extends import path so `import tensor_crypt.*` works from repository root while canonical code lives under `src/tensor_crypt` |
 
 The important architectural point is that the repository root is a compatibility and user-entry layer, not the place where simulation rules live.
 
@@ -60,7 +60,7 @@ The implementation package is `tensor_crypt`. The package is not a loose folder 
 | `tensor_crypt.simulation.engine` | tick order, phase boundaries, and attachment points |
 | `tensor_crypt.telemetry.data_logger` | run artifacts and permanent ledgers |
 | `tensor_crypt.checkpointing.runtime_checkpoint` | capture, validate, save, and restore runtime substrate |
-| `tensor_crypt.validation.final_validation` | determinism, resume, catastrophe, and save/load validation probes |
+| `tensor_crypt.audit.final_validation` | determinism, resume, catastrophe, and save/load validation probes |
 | `tensor_crypt.viewer.main` and related viewer modules | interactive observer and control UI |
 
 ### Configuration bridge pattern
@@ -113,17 +113,20 @@ It explicitly does **not** own simulation rules.
 
 ### Runtime validation before assembly
 
-`tensor_crypt.app.runtime.validate_runtime_config()` rejects unsupported combinations before the machine starts. At the time of this code dump, the runtime explicitly constrains several surfaces rather than silently supporting many modes:
+`tensor_crypt.app.runtime.validate_runtime_config()` rejects unsupported combinations before the machine starts. In the current codebase, the runtime explicitly constrains several surfaces rather than silently supporting many modes:
 
 - `SIM.DTYPE` must be `float32`
 - CUDA cannot be requested if unavailable
 - `AGENTS.SPAWN_MODE` must be `uniform`
 - `TRAITS.METAB_FORM` must be `affine_combo`
+- `BRAIN.INITIAL_FAMILY_ASSIGNMENT` must be `round_robin` or `weighted_random`
 - `RESPAWN.MODE` must be `binary_parented`
+- `RESPAWN.ANCHOR_PARENT_SELECTOR`, `RESPAWN.EXTINCTION_POLICY`, and `RESPAWN.BIRTH_HP_MODE` must come from explicit supported sets
+- `GRID.HZ_OVERLAP_MODE`, `PHYS.TIE_BREAKER`, and `TELEMETRY.LINEAGE_EXPORT_FORMAT` must come from explicit supported sets
 - `PPO.OWNERSHIP_MODE` must be `uid_strict`
-- manifest-related checkpoint flags must be consistent
-- checkpoint cadence must be non-negative
-- telemetry parquet batch size must be positive
+- `CATASTROPHE.DEFAULT_MODE` and `CATASTROPHE.AUTO_STATIC_ORDERING_POLICY` must come from explicit supported sets
+- manifest strictness and latest-pointer features require actual manifest publication (`ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST`)
+- logging cadence, checkpoint cadence, batch-size, and catastrophe-duration values must satisfy basic numeric constraints
 
 These checks are architectural. They show which modes are real runtime contracts and which modes are not presently supported.
 
@@ -735,7 +738,7 @@ The restore order is part of the ownership contract. PPO state is not restored b
 
 The validation harness observes the runtime through signatures rather than through ad hoc prints.
 
-`tensor_crypt.validation.final_validation` compares surfaces such as:
+`tensor_crypt.audit.final_validation` compares surfaces such as:
 
 - tick
 - `active_uid_to_slot`
@@ -818,7 +821,7 @@ Use the ownership map, not naming intuition.
 | change catastrophe scheduling or runtime override logic | catastrophe manager module and engine catastrophe boundary | grid or physics in isolation | catastrophe behavior is a cross-subsystem overlay surface |
 | change telemetry outputs or permanent ledgers | `tensor_crypt.telemetry.data_logger`, lineage export helpers | registry logic | logger observes canonical state; it does not define it |
 | change checkpoint schema or restore rules | `tensor_crypt.checkpointing.runtime_checkpoint`, `atomic_checkpoint` | engine only | checkpoint capture/restore is its own substrate contract |
-| change validation expectations | `tensor_crypt.validation.final_validation`, soak harnesses | production logic first | validation should encode the intended contract, not accidentally replace it |
+| change validation expectations | `tensor_crypt.audit.final_validation`, soak harnesses | production logic first | validation should encode the intended contract, not accidentally replace it |
 | change viewer presentation or interaction | `tensor_crypt.viewer.*` | engine/physics/registry ownership code | viewer is an observer and control UI, not a simulation authority |
 
 ## End-of-file recap
@@ -829,4 +832,4 @@ If a maintainer keeps those ownership boundaries clear, the repository remains u
 
 ## Read next
 
-Read the next document in the learning suite that covers learning internals and training mathematics. This runtime atlas stops at architecture, lifecycle, and ownership boundaries; the next file should take over at observation semantics, PPO mechanics, and learning-state interpretation.
+Read the next document in the technical document set that covers learning internals and training mathematics. This runtime atlas stops at architecture, lifecycle, and ownership boundaries; the next file should take over at observation semantics, PPO mechanics, and learning-state interpretation.

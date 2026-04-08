@@ -179,7 +179,7 @@ def extract_canonical_observation(obs: dict) -> tuple[torch.Tensor, torch.Tensor
         canonical = (obs["canonical_rays"], obs["canonical_self"], obs["canonical_context"])
     else:
         if not cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK:
-            raise KeyError("Bloodline MLP brain requires Prompt 2 canonical observations")
+            raise KeyError("Bloodline MLP brain requires canonical observations")
         canonical = _adapt_legacy_observation_to_canonical(obs)
 
     _validate_canonical_observation_tensors(*canonical)
@@ -273,7 +273,7 @@ class Brain(nn.Module):
     Invariants:
     - every instance belongs to exactly one bloodline family
     - within a family, parameter topology is fully shape-identical
-    - forward always returns `(logits, value)` on the Prompt 2 canonical contract
+    - forward always returns `(logits, value)` on the canonical observation contract
     """
 
     def __init__(self, family_id: str | None = None):

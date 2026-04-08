@@ -1,4 +1,4 @@
-"""Alternate root launch entrypoint for Tensor Crypt."""
+"""Secondary repository-root launch entrypoint for Tensor Crypt."""
 
 from tensor_crypt.app.launch import main
 

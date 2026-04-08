@@ -10,6 +10,18 @@ import time
 from ..config_bridge import cfg
 
 
+FIXED_IDENTITY_RUNTIME = {
+    "substrate": "canonical_uid",
+    "ppo_ownership_mode": "uid_strict",
+}
+FIXED_OBSERVATION_COMPAT = {
+    "legacy_adapter": "canonical_bridge_v1",
+}
+FIXED_BRAIN_RUNTIME = {
+    "mode": "bloodline_mlp_families_v1",
+}
+
+
 def schema_versions_dict() -> dict:
     return {
         "IDENTITY_SCHEMA_VERSION": cfg.SCHEMA.IDENTITY_SCHEMA_VERSION,
@@ -23,12 +35,16 @@ def schema_versions_dict() -> dict:
 
 
 def build_run_metadata() -> dict:
+    manifests_published = bool(
+        cfg.CHECKPOINT.ATOMIC_WRITE_ENABLED
+        and cfg.CHECKPOINT.MANIFEST_ENABLED
+        and cfg.CHECKPOINT.SAVE_CHECKPOINT_MANIFEST
+    )
     return {
         "schema_versions": schema_versions_dict(),
-        "ownership_mode": cfg.IDENTITY.OWNERSHIP_MODE,
         "config_snapshot": "config.json",
         "identity": {
-            "enable_uid_substrate": cfg.IDENTITY.ENABLE_UID_SUBSTRATE,
+            **FIXED_IDENTITY_RUNTIME,
             "mirror_legacy_float_columns": cfg.IDENTITY.MIRROR_UIDS_TO_LEGACY_FLOAT_COLUMNS,
         },
         "checkpoint": {
@@ -39,26 +55,25 @@ def build_run_metadata() -> dict:
             "save_every_ticks": cfg.CHECKPOINT.SAVE_EVERY_TICKS,
             "keep_last": cfg.CHECKPOINT.KEEP_LAST,
             "directory_name": cfg.CHECKPOINT.DIRECTORY_NAME,
+            "publishes_manifest": manifests_published,
+            "writes_latest_pointer": bool(cfg.CHECKPOINT.WRITE_LATEST_POINTER and manifests_published),
         },
         "migration": {
             "log_legacy_slot_fields": cfg.MIGRATION.LOG_LEGACY_SLOT_FIELDS,
-            "log_uid_fields": cfg.MIGRATION.LOG_UID_FIELDS,
             "viewer_show_slot_and_uid": cfg.MIGRATION.VIEWER_SHOW_SLOT_AND_UID,
             "viewer_show_bloodline": cfg.MIGRATION.VIEWER_SHOW_BLOODLINE,
-            "require_canonical_uid_paths": cfg.MIGRATION.REQUIRE_CANONICAL_UID_PATHS,
         },
         "observation": {
-            "legacy_adapter_mode": cfg.PERCEPT.LEGACY_ADAPTER_MODE,
+            **FIXED_OBSERVATION_COMPAT,
             "return_canonical_observations": cfg.PERCEPT.RETURN_CANONICAL_OBSERVATIONS,
             "canonical_ray_features": cfg.PERCEPT.CANONICAL_RAY_FEATURES,
             "canonical_self_features": cfg.PERCEPT.CANONICAL_SELF_FEATURES,
             "canonical_context_features": cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES,
         },
         "brain_runtime": {
-            "mode": "bloodline_mlp_families_v1",
+            **FIXED_BRAIN_RUNTIME,
             "default_family": cfg.BRAIN.DEFAULT_FAMILY,
             "family_order": list(cfg.BRAIN.FAMILY_ORDER),
-            "legacy_transformer_fallback_enabled": cfg.BRAIN.LEGACY_TRANSFORMER_FALLBACK_ENABLED,
             "legacy_obs_fallback_enabled": cfg.BRAIN.ALLOW_LEGACY_OBS_FALLBACK,
         },
         "catastrophe_runtime": {

@@ -55,7 +55,7 @@ The repository also persists this same surface in two places:
 
 ### What “active knob” means here
 
-An active knob is a field that the runtime actually reads and uses to alter behavior, output, or strictness in the uploaded codebase.
+An active knob is a field that the runtime actually reads and uses to alter behavior, output, or strictness in the current codebase.
 
 Examples:
 - `SIM.SEED`
@@ -66,7 +66,7 @@ Examples:
 - `CHECKPOINT.SAVE_EVERY_TICKS`
 - `TELEMETRY.PARQUET_BATCH_ROWS`
 
-### What “guarded compatibility surface” means here
+### What "guarded compatibility surface" means here
 
 A guarded compatibility surface is present in the config schema, but the runtime currently accepts only one supported mode or a very narrow supported set. Unsupported non-default values are rejected during validation rather than being silently ignored.
 
@@ -77,40 +77,21 @@ The repository explicitly validates several such surfaces:
 - `TRAITS.METAB_FORM` -> only `"affine_combo"`
 - `RESPAWN.MODE` -> only `"binary_parented"`
 - `PPO.OWNERSHIP_MODE` -> only `"uid_strict"`
-- checkpoint dependency constraints:
-  - `STRICT_MANIFEST_VALIDATION` requires `MANIFEST_ENABLED`
-  - `WRITE_LATEST_POINTER` requires `MANIFEST_ENABLED`
+- `SAVE_CHECKPOINT_MANIFEST` currently publishes manifests only on the atomic path
+- `STRICT_MANIFEST_VALIDATION` requires actual manifest publication (`ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, `SAVE_CHECKPOINT_MANIFEST`)
+- `WRITE_LATEST_POINTER` requires actual manifest publication (`ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, `SAVE_CHECKPOINT_MANIFEST`)
 - `PPO.REWARD_FORM` and `PPO.REWARD_GATE_MODE` are also validated against explicit supported sets
 
 This is a deliberate design choice. The repository would rather reject an unsupported mode than let an operator believe a value is live when it is not.
 
-### What to do with documented-but-unread surfaces
+### What to do with legacy or narrow surfaces
 
-The runtime config itself marks some fields as “currently unread / effectively dead” in the uploaded dump. Treat those as documentary residue or compatibility placeholders until you verify a live runtime read. Do not assume that because a field exists, it is a safe experimental control.
+Most dead or documentary-only fields were removed from the live config surface during the config-truth cleanup. The main intentionally retained exceptions are:
 
-Representative examples the config comments themselves flag this way include:
+- `TRAITS.INIT`: a legacy/template container kept for compatibility and documentation. The live birth path does not read it directly.
+- `TELEMETRY.ENABLE_DEEP_LEDGERS`: a partially active bootstrap gate. It only controls initial root-seed deep-ledger seeding in `DataLogger`, not whether the telemetry stack as a whole runs.
 
-- `SIM.TICKS_PER_SEC`
-- `GRID.EXPOSE_H_GRAD`
-- `RESPAWN.BRAIN_PARENT_SELECTOR`
-- `RESPAWN.TRAIT_PARENT_SELECTOR`
-- `RESPAWN.FLOOR_RECOVERY_REQUIRE_TWO_PARENTS`
-- `RESPAWN.ASSERT_BINARY_PARENTING`
-- `TRAITS.INIT`
-- `PHYS.MOVE_FAIL_COST`
-- `PERCEPT.RAY_FIELD_AGG`
-- `PERCEPT.RAY_STEP_SAMPLER`
-- `PPO.TRACK_TRAINING_STATE`
-- `EVOL.SELECTION`
-- `EVOL.FITNESS_TEMP`
-- `VIEW.PAINT_BRUSH`
-- `VIEW.CELL_SIZE`
-- `IDENTITY.ASSERT_NO_SLOT_OWNERSHIP_LEAK`
-- `VALIDATION.VALIDATION_STRICTNESS`
-- `VALIDATION.SAVE_LOAD_SAVE_COMPARE_BUFFERS`
-- `VALIDATION.STRICT_TELEMETRY_SCHEMA_WRITES`
-
-That distinction matters. In this repository, the mere existence of a config field does not prove it is part of the live operational surface.
+If a field is still presented as a mode selector in this repository, assume it is either live or guarded by explicit validation. If you need a removed historical knob, recover it from git history rather than assuming the current runtime still honors it.
 
 ## A taxonomy of knobs and control surfaces
 
@@ -153,12 +134,12 @@ The table below is the compact working map of the root config surface. The “hi
 | `EVOL` | mutation and fitness carryover | fitness decay, policy noise, trait mutation sigmas, rare mutation path, family shift | — | births and long-horizon lineage drift live here |
 | `VIEW` | viewer startup defaults and rendering presentation | catastrophe panel/overlay flags | FPS, overlays, legend visibility, shade strength, window size | mostly presentational, but the viewer also contains semantic controls |
 | `LOG` | run directory, progress cadence, snapshot cadence, assertions, AMP | `ASSERTIONS`, `AMP` | `DIR`, `LOG_TICK_EVERY`, `SNAPSHOT_EVERY` | snapshot cadence affects artifact volume, not world rules |
-| `IDENTITY` | canonical UID substrate and shadow-column bridge | `ASSERT_BINDINGS`, `ASSERT_HISTORICAL_UIDS`, `MIRROR_UIDS_TO_LEGACY_FLOAT_COLUMNS` | ownership mode label | UID ownership is part of checkpoint and telemetry truth |
+| `IDENTITY` | canonical UID substrate and shadow-column bridge | `ASSERT_BINDINGS`, `ASSERT_HISTORICAL_UIDS`, `MIRROR_UIDS_TO_LEGACY_FLOAT_COLUMNS` | none | UID ownership is fixed doctrine; the remaining knobs only control invariant checking and legacy shadow columns |
 | `SCHEMA` | version stamps written into persisted artifacts | all schema version fields | — | bump only with deliberate migrations |
 | `CHECKPOINT` | runtime checkpoint capture, strictness, publishing, retention | strict validation flags, capture flags, atomic/manifest flags, `SAVE_EVERY_TICKS` | file/path naming knobs, `KEEP_LAST` | one of the most invariant-sensitive surfaces in the repo |
-| `TELEMETRY` | deep ledgers, summaries, lineage export, batching | ledger enablement flags, export cadence, batch rows, catastrophe exposure tracking | inspector enrichment | observe-only by intent, but can impose hot-path cost |
+| `TELEMETRY` | deep ledgers, summaries, lineage export, batching | ledger enablement flags, export cadence, batch rows, catastrophe exposure tracking | inspector enrichment | observe-only by intent, but `ENABLE_DEEP_LEDGERS` is only a bootstrap gate, not a global telemetry master switch |
 | `VALIDATION` | final audit harness and probe enablement | harness/probe flags, tick budgets | — | determines what proof surfaces are run, not simulation rules |
-| `MIGRATION` | legacy/canonical visibility and UID-era hardening | `REQUIRE_CANONICAL_UID_PATHS` | log/viewer visibility switches | operationally important during compatibility work |
+| `MIGRATION` | legacy/canonical visibility for logs and viewer | none | `LOG_LEGACY_SLOT_FIELDS`, `VIEWER_SHOW_SLOT_AND_UID`, `VIEWER_SHOW_BLOODLINE` | inspection-only compatibility presentation; no hardening switches remain in the live config surface |
 | `CATASTROPHE` | scheduler mode, allowed types, durations, per-type parameters, persistence | scheduler mode/gaps, overlap, type enables, durations, `TYPE_PARAMS`, checkpoint persistence | viewer controls/overlay toggles | active shocks change world field, physics, perception, and reproduction |
 
 ### A practical grouping that matches real work

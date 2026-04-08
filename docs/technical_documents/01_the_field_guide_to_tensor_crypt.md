@@ -722,6 +722,8 @@ These do not change simulation mechanics, but they strongly change what a human 
 - `VIEW.SHOW_CATASTROPHE_STATUS_IN_HUD`
 - `VIEW.FPS`
 
+In the current viewer, `VIEW.SHOW_OVERLAYS` only seeds startup state for `h_rate` and `rays`; it is not a general overlay registry.
+
 Runs can feel “opaque” or “legible” to an operator even when their underlying mechanics are identical.
 
 ## Common beginner questions
@@ -764,4 +766,4 @@ If you can now mentally narrate a tick, a death, a birth, and a catastrophe wind
 
 ## Read next
 
-Continue to the next document in the learning suite for the deeper mechanics: internal runtime flow, subsystem responsibilities, and the stricter technical picture that sits underneath this field guide.
+Continue to the next document in the technical document set for the deeper mechanics: internal runtime flow, subsystem responsibilities, and the stricter technical picture that sits underneath this field guide.

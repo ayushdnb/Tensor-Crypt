@@ -54,7 +54,7 @@ class Perception:
         """
         Vectorized ray casting for multiple agents.
 
-        Prompt 2 canonical contract per ray:
+        Canonical per-ray feature contract:
         [hit_none, hit_agent, hit_wall, hit_distance_norm,
          path_zone_peak_rate_norm, terminal_zone_rate_norm,
          target_mass_norm, target_hp_ratio]
@@ -167,8 +167,8 @@ class Perception:
         effective_vision_ranges = self.get_effective_vision_values(alive_indices)
         canonical_rays = self.cast_rays_batched(positions, effective_vision_ranges, alive_indices)
 
-        # Prompt 6 fog must affect whichever observation surface is exported
-        # without mutating the inherited trait tensor stored in the registry.
+        # Runtime vision modifiers must affect whichever observation surface is
+        # exported without mutating the inherited trait tensor stored in the registry.
         vision_norm = normalize_from_bounds(
             effective_vision_ranges,
             cfg.TRAITS.CLAMP.vision[0],

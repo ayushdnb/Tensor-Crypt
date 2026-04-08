@@ -21,7 +21,7 @@ from .reproduction import (
 
 
 class RespawnController:
-    """Prompt 5 binary reproduction controller with Prompt 6 catastrophe gates."""
+    """Binary reproduction controller with catastrophe-aware runtime gates."""
 
     def __init__(self, evolution):
         self.evolution = evolution

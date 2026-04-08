@@ -1,4 +1,4 @@
-"""Canonical observation schema helpers for Prompt 2."""
+"""Canonical observation schema helpers."""
 
 from __future__ import annotations
 

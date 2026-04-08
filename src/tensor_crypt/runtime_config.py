@@ -3,21 +3,23 @@
 This file is the single authoritative control surface for simulation semantics,
 training cadence, checkpointing, telemetry, validation, and viewer behavior.
 
-This rewrite preserves the original defaults and the original public class /
-field names, but expands the file into a much deeper operator manual.
+This file preserves the original defaults and the original public class /
+field names, while documenting the runtime surfaces in more detail.
 
 Audit legend used throughout this file
 --------------------------------------
 - ACTIVE RUNTIME KNOB:
-  The uploaded repository dump contains direct reads of this surface.
+  The current repository contains direct reads of this surface.
+- PARTIALLY ACTIVE / NARROW-EFFECT KNOB:
+  The surface is read, but its real effect is narrower than the field name might
+  suggest. Comments below describe the exact live effect.
 - GUARDED COMPATIBILITY SURFACE:
   The surface exists publicly, but current runtime validation only accepts a
   restricted subset of values. Unsupported values are rejected.
-- CURRENTLY UNREAD / EFFECTIVELY DEAD:
-  No direct `.<SECTION>.<FIELD>` runtime read was found in the uploaded dump.
-  This is an honest repository-grounded marker, not a stylistic opinion.
-  Such knobs may still exist for future work, historical reasons, or external
-  tooling, but they do not appear to drive the current in-repo runtime.
+- LEGACY / DOCUMENTARY COMPATIBILITY SURFACE:
+  The surface is retained because it names a legacy/default contract or because
+  persisted metadata still benefits from the label, but it is not a live mode
+  selector for the in-repo runtime.
 - HIGH-RISK SCHEMA KNOB:
   These are shape / schema / checkpoint / compatibility surfaces. Change them
   only as part of a deliberate migration.
@@ -72,13 +74,6 @@ class SimConfig:
     # Treat this as a compatibility marker rather than a free tuning knob.
     DTYPE: str = "float32"  # Guarded compatibility surface; the runtime currently supports only float32.
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.SIM.TICKS_PER_SEC` runtime read was found in the code dump.
-    # Viewer cadence / pacing hint.
-    # In the uploaded code dump no live runtime read was found, so changing this currently has no
-    # observed effect.
-    TICKS_PER_SEC: int = 30
-    #
     # CURRENT STATUS: active runtime knob.
     # Optional automatic stop threshold.
     # Set `0` to keep the session open until the operator exits.
@@ -128,13 +123,6 @@ class GridConfig:
     # Whether the zone field is rebuilt / cleared each tick before applying transient effects.
     # Keeping this true is the safer baseline for reversible catastrophe overlays.
     HZ_CLEAR_EACH_TICK: bool = True
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.GRID.EXPOSE_H_GRAD` runtime read was found in the code dump.
-    # Gradient/diagnostic field exposure switch.
-    # No live runtime read was found in the uploaded dump, so this currently behaves like an unread
-    # compatibility surface.
-    EXPOSE_H_GRAD: bool = False
 
 
 @dataclass
@@ -236,7 +224,7 @@ class RespawnConfig:
     # No births are emitted once live population is at or above this value.
     POPULATION_CEILING: int = 150
 
-    # Prompt 5 reproduction control surface.
+    # Binary reproduction control surface.
     #
     # CURRENT STATUS: guarded compatibility surface.
     # Non-supported non-default values are rejected during runtime validation rather than being silently accepted.
@@ -244,19 +232,6 @@ class RespawnConfig:
     # The current runtime validates only `"binary_parented"`.
     # Treat alternate values as unsupported until code is expanded.
     MODE: str = "binary_parented"  # Guarded compatibility surface; reproduction semantics remain binary parented.
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.RESPAWN.BRAIN_PARENT_SELECTOR` runtime read was found in the code dump.
-    # Documented brain-parent selector identity.
-    # No direct runtime read was found; the live code currently selects by explicit logic rather than
-    # this string knob.
-    BRAIN_PARENT_SELECTOR: str = "fitness"
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.RESPAWN.TRAIT_PARENT_SELECTOR` runtime read was found in the code dump.
-    # Documented trait-parent selector identity.
-    # No direct runtime read was found in the uploaded dump.
-    TRAIT_PARENT_SELECTOR: str = "vitality"
     #
     # CURRENT STATUS: active runtime knob.
     # Placement-anchor selection policy.
@@ -285,12 +260,6 @@ class RespawnConfig:
     # Whether parent-eligibility thresholds are suspended during floor recovery.
     # Keeping this true makes emergency recovery more permissive.
     FLOOR_RECOVERY_SUSPEND_THRESHOLDS: bool = True
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.RESPAWN.FLOOR_RECOVERY_REQUIRE_TWO_PARENTS` runtime read was found in the code dump.
-    # Documented emergency two-parent requirement knob.
-    # No direct runtime read was found in the uploaded dump.
-    FLOOR_RECOVERY_REQUIRE_TWO_PARENTS: bool = True
 
     #
     # CURRENT STATUS: active runtime knob.
@@ -362,42 +331,36 @@ class RespawnConfig:
     # Whether failed placement attempts are emitted to telemetry/logging.
     # Useful during debugging crowded maps or strict spawn constraints.
     LOG_PLACEMENT_FAILURES: bool = True
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.RESPAWN.ASSERT_BINARY_PARENTING` runtime read was found in the code dump.
-    # Documented binary-parenting assertion knob.
-    # No direct runtime read was found in the uploaded dump.
-    ASSERT_BINARY_PARENTING: bool = True
 
 
 @dataclass
 class TraitInit:
     """Legacy/default trait template.
 
-    This structure exists in the root config surface, but in the uploaded code dump
+    This structure exists in the root config surface, but in the current codebase
     the live birth pipeline is driven by latent-budget reconstruction rather than
     direct reads from this template.
     """
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
+    # CURRENT STATUS: legacy / documentary compatibility surface.
     # This value lives inside the legacy/default trait template container, but the live
     # birth pipeline in the uploaded code uses latent-budget decoding instead of
     # directly reading `TRAITS.INIT` fields.
     mass: float = 2.0
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
+    # CURRENT STATUS: legacy / documentary compatibility surface.
     # This value lives inside the legacy/default trait template container, but the live
     # birth pipeline in the uploaded code uses latent-budget decoding instead of
     # directly reading `TRAITS.INIT` fields.
     vision: float = 8.0
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
+    # CURRENT STATUS: legacy / documentary compatibility surface.
     # This value lives inside the legacy/default trait template container, but the live
     # birth pipeline in the uploaded code uses latent-budget decoding instead of
     # directly reading `TRAITS.INIT` fields.
     hp_max: float = 20.0
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
+    # CURRENT STATUS: legacy / documentary compatibility surface.
     # This value lives inside the legacy/default trait template container, but the live
     # birth pipeline in the uploaded code uses latent-budget decoding instead of
     # directly reading `TRAITS.INIT` fields.
@@ -464,11 +427,10 @@ class TraitsConfig:
     coefficients are documented.
     """
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.TRAITS.INIT` runtime read was found in the code dump.
+    # CURRENT STATUS: legacy / documentary compatibility surface.
     # Legacy initial trait template container.
-    # The current birth pipeline uses latent decoding rather than reading this block directly, so the
-    # container itself is currently unread.
+    # The current birth pipeline uses latent decoding rather than reading this block directly.
+    # Retained so compatibility code and operator docs still have one explicit template bundle to point at.
     INIT: TraitInit = field(default_factory=TraitInit)
     #
     # CURRENT STATUS: active runtime knob.
@@ -534,12 +496,6 @@ class PhysicsConfig:
     # Higher values make losing engagements more punishing.
     K_LOSER_DAMAGE: float = 0.6
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.PHYS.MOVE_FAIL_COST` runtime read was found in the code dump.
-    # Configured cost for failed movement.
-    # No direct runtime read was found in the uploaded dump, so this currently appears unread.
-    MOVE_FAIL_COST: float = -0.2
-    #
     # CURRENT STATUS: active runtime knob.
     # Combat tie-break policy after primary strength ordering.
     # The configured default is `"strength_then_lowest_id"`.
@@ -561,19 +517,6 @@ class PerceptionConfig:
     # Number of rays cast per observing agent.
     # Increasing this improves directional coverage but raises observation and inference cost.
     NUM_RAYS: int = 32
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.PERCEPT.RAY_FIELD_AGG` runtime read was found in the code dump.
-    # Ray-field aggregation mode surface.
-    # No direct runtime read was found in the uploaded dump, so this currently appears to be an
-    # unread compatibility knob.
-    RAY_FIELD_AGG: str = "max_abs"
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.PERCEPT.RAY_STEP_SAMPLER` runtime read was found in the code dump.
-    # Ray stepping / sampler mode surface.
-    # No direct runtime read was found in the uploaded dump, so this currently appears unread.
-    RAY_STEP_SAMPLER: str = "dda_first_hit"
 
     #
     # CURRENT STATUS: active runtime knob.
@@ -617,12 +560,6 @@ class PerceptionConfig:
     # Legacy context-vector width used by the adapter.
     # Keep aligned with any legacy observation producer still in use.
     LEGACY_CONTEXT_FEATURES: int = 3
-    #
-    # CURRENT STATUS: active runtime knob.
-    # Legacy adapter identity string.
-    # The configured default names the bridge implementation: `"prompt2_canonical_bridge_v1"`.
-    # Treat this primarily as a compatibility/documentation surface.
-    LEGACY_ADAPTER_MODE: str = "prompt2_canonical_bridge_v1"
 
     #
     # CURRENT STATUS: active runtime knob.
@@ -744,11 +681,6 @@ class BrainConfig:
         }
     )
 
-    #
-    # CURRENT STATUS: active runtime knob.
-    # Legacy transformer fallback toggle.
-    # Keep disabled unless you are deliberately resurrecting that compatibility surface.
-    LEGACY_TRANSFORMER_FALLBACK_ENABLED: bool = False
     #
     # CURRENT STATUS: active runtime knob.
     # Whether the brain may adapt legacy observations into canonical form.
@@ -899,13 +831,6 @@ class PPOConfig:
     # Change only as part of a deliberate compatibility migration.
     BUFFER_SCHEMA_VERSION: int = 1
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.PPO.TRACK_TRAINING_STATE` runtime read was found in the code dump.
-    # Documented training-state tracking toggle.
-    # No direct runtime read was found; training state is currently tracked regardless in the
-    # uploaded dump.
-    TRACK_TRAINING_STATE: bool = True
-    #
     # CURRENT STATUS: active runtime knob.
     # Whether ready PPO updates are grouped / ordered by family.
     # This changes scheduling order, not the per-UID ownership model.
@@ -940,12 +865,6 @@ class EvolutionConfig:
     how much historical fitness decays or persists across death cycles.
     """
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.EVOL.SELECTION` runtime read was found in the code dump.
-    # Documented selection-mode identity.
-    # No direct runtime read was found in the uploaded dump.
-    SELECTION: str = "softmax_fitness"
-    #
     # CURRENT STATUS: active runtime knob.
     # Decay factor applied to stored fitness across death processing.
     # Lower values forget history faster; higher values preserve it longer.
@@ -955,14 +874,8 @@ class EvolutionConfig:
     # Standard deviation of ordinary policy-parameter noise applied at birth.
     # Raise for more exploration / lineage drift.
     POLICY_NOISE_SD: float = 0.01
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.EVOL.FITNESS_TEMP` runtime read was found in the code dump.
-    # Documented fitness-temperature surface.
-    # No direct runtime read was found in the uploaded dump.
-    FITNESS_TEMP: float = 1.0
 
-    # Prompt 5 mutation knobs.
+    # Binary reproduction mutation knobs.
     #
     # CURRENT STATUS: active runtime knob.
     # Standard deviation for ordinary latent trait-logit mutations.
@@ -1020,12 +933,6 @@ class ViewerConfig:
     # Higher values make the UI smoother but demand more rendering work.
     FPS: int = 30
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.VIEW.PAINT_BRUSH` runtime read was found in the code dump.
-    # Documented paint-brush shape/size for interactive painting tools.
-    # No direct runtime read was found in the uploaded dump.
-    PAINT_BRUSH: List[int] = field(default_factory=lambda: [3, 3])
-    #
     # CURRENT STATUS: active runtime knob.
     # Step size used when adjusting paint rate interactively.
     # Smaller steps give finer control.
@@ -1033,8 +940,9 @@ class ViewerConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Default overlay on/off map for viewer startup.
-    # Keys in the default surface are `h_rate`, `h_grad`, and `rays`.
-    SHOW_OVERLAYS: Dict[str, bool] = field(default_factory=lambda: {"h_rate": True, "h_grad": False, "rays": False})  # Viewer default overlay state.
+    # Supported keys in the current viewer are `h_rate` and `rays`.
+    # This sets only the initial toggle state; it does not define extra overlay modes.
+    SHOW_OVERLAYS: Dict[str, bool] = field(default_factory=lambda: {"h_rate": True, "rays": False})  # Viewer startup defaults for supported overlays.
     #
     # CURRENT STATUS: active runtime knob.
     # Initial viewer window width in pixels.
@@ -1046,12 +954,6 @@ class ViewerConfig:
     # Pure presentation knob.
     WINDOW_HEIGHT: int = 800
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.VIEW.CELL_SIZE` runtime read was found in the code dump.
-    # Documented default cell-size control.
-    # No direct runtime read was found in the uploaded dump.
-    CELL_SIZE: int = 10
-    #
     # CURRENT STATUS: active runtime knob.
     # Whether the viewer should display the bloodline legend by default.
     # This affects UI density, not simulation state.
@@ -1062,7 +964,7 @@ class ViewerConfig:
     # Higher values generally make low-HP darkening more pronounced.
     BLOODLINE_LOW_HP_SHADE: float = 0.35
 
-    # Prompt 6 viewer catastrophe surfaces.
+    # Viewer catastrophe surfaces.
     #
     # CURRENT STATUS: active runtime knob.
     # Whether the viewer shows the catastrophe panel.
@@ -1116,22 +1018,12 @@ class LogConfig:
 
 @dataclass
 class IdentityConfig:
-    """Canonical UID ownership controls.
+    """Canonical UID invariant and shadow-column controls.
 
-    These knobs document the UID substrate and compatibility bridging between the
-    canonical UID path and legacy float shadow columns used for visibility.
+    The repository's UID ownership model is fixed doctrine, not a mode selector.
+    The remaining fields here govern invariant strictness and whether UID values
+    are mirrored into legacy float columns for inspection/compatibility surfaces.
     """
-    #
-    # CURRENT STATUS: active runtime knob.
-    # Whether the UID identity substrate is conceptually enabled.
-    # This documents the canonical ownership model of the repository.
-    ENABLE_UID_SUBSTRATE: bool = True
-    #
-    # CURRENT STATUS: active runtime knob.
-    # Identity ownership-mode string.
-    # The configured default is `"uid_bridge"`.
-    # It describes the bridge between canonical UID identity and legacy surfaces.
-    OWNERSHIP_MODE: str = "uid_bridge"
     #
     # CURRENT STATUS: active runtime knob.
     # Whether binding invariants are asserted.
@@ -1142,12 +1034,6 @@ class IdentityConfig:
     # Whether parent references are checked against the lifecycle ledger.
     # Keeping this true protects lineage integrity.
     ASSERT_HISTORICAL_UIDS: bool = True
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.IDENTITY.ASSERT_NO_SLOT_OWNERSHIP_LEAK` runtime read was found in the code dump.
-    # Documented slot-leak assertion surface.
-    # No direct runtime read was found in the uploaded dump.
-    ASSERT_NO_SLOT_OWNERSHIP_LEAK: bool = True
     #
     # CURRENT STATUS: active runtime knob.
     # Whether canonical UIDs are mirrored into legacy float shadow columns.
@@ -1269,10 +1155,11 @@ class CheckpointConfig:
     # Recommended for safety.
     VALIDATE_BUFFER_SCHEMA: bool = True
     #
-    # CURRENT STATUS: active runtime knob.
-    # Whether a manifest file is emitted alongside checkpoint bundles.
-    # The atomic publish path uses this as a gate.
-    SAVE_CHECKPOINT_MANIFEST: bool = True  # Manifest emission gate used by atomic checkpoint publishing.
+    # CURRENT STATUS: active runtime knob with a narrow publication path.
+    # Whether manifest files are emitted alongside checkpoint bundles.
+    # In the current runtime manifests are published only on the atomic save path when
+    # `ATOMIC_WRITE_ENABLED` and `MANIFEST_ENABLED` are also true.
+    SAVE_CHECKPOINT_MANIFEST: bool = True  # Manifest publication gate on the atomic checkpoint path.
     #
     # CURRENT STATUS: active runtime knob.
     # Periodic runtime checkpoint cadence.
@@ -1294,16 +1181,17 @@ class CheckpointConfig:
     # Pure pathing knob.
     FILENAME_PREFIX: str = "runtime_tick_"  # Stable filename prefix for periodic runtime checkpoints.
 
-    # Prompt 7 atomic publish and corruption controls.
+    # Atomic publish and corruption controls.
     #
     # CURRENT STATUS: active runtime knob.
     # Whether checkpoint publish uses temp-file + atomic replace semantics.
     # Recommended to keep enabled for corruption safety.
     ATOMIC_WRITE_ENABLED: bool = True
     #
-    # CURRENT STATUS: active runtime knob.
+    # CURRENT STATUS: active runtime knob with a narrow publication path.
     # Whether manifests are part of the published checkpoint file set.
-    # Must remain enabled if strict manifest validation or latest-pointer writing is enabled.
+    # This does not create a separate non-atomic manifest path; it only participates in
+    # manifest publication when atomic saving is enabled and manifest writing is requested.
     MANIFEST_ENABLED: bool = True
     #
     # CURRENT STATUS: active runtime knob.
@@ -1313,7 +1201,8 @@ class CheckpointConfig:
     #
     # CURRENT STATUS: active safety knob with an explicit dependency constraint.
     # Whether manifest metadata must validate during load.
-    # Requires `MANIFEST_ENABLED = True` in the current runtime.
+    # Requires actual manifest publication in the current runtime:
+    # `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST`.
     STRICT_MANIFEST_VALIDATION: bool = True
     #
     # CURRENT STATUS: active runtime knob.
@@ -1328,7 +1217,8 @@ class CheckpointConfig:
     #
     # CURRENT STATUS: active safety knob with an explicit dependency constraint.
     # Whether a `latest` pointer JSON file is maintained.
-    # Requires `MANIFEST_ENABLED = True` in the current runtime.
+    # Requires actual manifest publication in the current runtime:
+    # `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST`.
     WRITE_LATEST_POINTER: bool = True
     #
     # CURRENT STATUS: active runtime knob.
@@ -1360,9 +1250,10 @@ class TelemetryConfig:
     summary/lineage data is flushed.
     """
     #
-    # CURRENT STATUS: active runtime knob.
-    # Master toggle for the richer ledger family.
-    # Disable to reduce telemetry volume.
+    # CURRENT STATUS: partially active / narrow-effect knob.
+    # Legacy-named bootstrap gate for initial-population deep-ledger seeding.
+    # In the current codebase this does not disable the full telemetry stack; it only
+    # skips the initial root-seed birth/life bootstrap path in `DataLogger`.
     ENABLE_DEEP_LEDGERS: bool = True
     #
     # CURRENT STATUS: active runtime knob.
@@ -1480,12 +1371,6 @@ class ValidationConfig:
     # Useful when modifying scheduler or catastrophe state surfaces.
     ENABLE_CATASTROPHE_REPRO_TESTS: bool = True
     #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.VALIDATION.VALIDATION_STRICTNESS` runtime read was found in the code dump.
-    # Documented strictness label.
-    # No direct runtime branch on this label was found in the uploaded dump.
-    VALIDATION_STRICTNESS: str = "strict"  # permissive | strict
-    #
     # CURRENT STATUS: active runtime knob.
     # Default tick budget for audit harness runs.
     # Longer runs increase confidence but cost more time.
@@ -1495,18 +1380,6 @@ class ValidationConfig:
     # Tick count used by the determinism probe.
     # Increase to make the comparison harsher.
     DETERMINISM_COMPARE_TICKS: int = 8
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.VALIDATION.SAVE_LOAD_SAVE_COMPARE_BUFFERS` runtime read was found in the code dump.
-    # Documented save-load-save buffer comparison flag.
-    # No direct runtime read was found in the uploaded dump.
-    SAVE_LOAD_SAVE_COMPARE_BUFFERS: bool = True
-    #
-    # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
-    # Audit basis: no direct `.VALIDATION.STRICT_TELEMETRY_SCHEMA_WRITES` runtime read was found in the code dump.
-    # Documented strict telemetry-write flag.
-    # No direct runtime read was found in the uploaded dump.
-    STRICT_TELEMETRY_SCHEMA_WRITES: bool = True
 
 
 @dataclass
@@ -1523,11 +1396,6 @@ class MigrationConfig:
     LOG_LEGACY_SLOT_FIELDS: bool = True
     #
     # CURRENT STATUS: active runtime knob.
-    # Whether canonical UID fields are included in logs.
-    # Useful for lineage-safe auditing.
-    LOG_UID_FIELDS: bool = True
-    #
-    # CURRENT STATUS: active runtime knob.
     # Whether the viewer shows both slot and UID identity information.
     # Inspection/UI only.
     VIEWER_SHOW_SLOT_AND_UID: bool = True
@@ -1536,11 +1404,6 @@ class MigrationConfig:
     # Whether bloodline information is shown in migration-era viewer surfaces.
     # Inspection/UI only.
     VIEWER_SHOW_BLOODLINE: bool = True
-    #
-    # CURRENT STATUS: active runtime knob.
-    # Whether canonical UID paths are required.
-    # Safety / migration-hardening knob.
-    REQUIRE_CANONICAL_UID_PATHS: bool = True
 
 
 @dataclass
@@ -1706,7 +1569,7 @@ class CatastropheConfig:
         }
     )
 
-    # Prompt 6 catastrophe intensity and scheduler knobs.
+    # Catastrophe intensity and scheduler knobs.
     #
     # CURRENT STATUS: active runtime knob.
     # Per-catastrophe parameter bundle.

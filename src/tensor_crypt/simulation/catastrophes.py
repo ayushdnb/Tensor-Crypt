@@ -1,5 +1,5 @@
 """
-Prompt 6 catastrophe scheduler and reversible world-shock system.
+Catastrophe scheduler and reversible world-shock system.
 
 Design doctrine:
 - catastrophes are explicit bounded events
@@ -210,10 +210,11 @@ class CatastropheManager:
             return cat_id
         if policy == "fixed_priority":
             return enabled[0]
-
-        cat_id = enabled[self._static_cursor % len(enabled)]
-        self._static_cursor += 1
-        return cat_id
+        if policy == "round_robin":
+            cat_id = enabled[self._static_cursor % len(enabled)]
+            self._static_cursor += 1
+            return cat_id
+        raise ValueError(f"Unsupported CATASTROPHE.AUTO_STATIC_ORDERING_POLICY: {cfg.CATASTROPHE.AUTO_STATIC_ORDERING_POLICY!r}")
 
     def _plan_next_auto_tick(self, current_tick: int) -> None:
         if self.mode == "auto_dynamic":

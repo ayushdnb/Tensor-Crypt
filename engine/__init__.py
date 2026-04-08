@@ -1,9 +1,9 @@
 """
-Legacy compatibility package.
+Repository-root compatibility package for legacy `engine.*` imports.
 
-Only the package stub remains at repository root. The thin re-export modules
-now live under `src/engine`, while this package extends
-its import path so legacy imports such as `engine.physics` still resolve.
+Only the package stub remains at repository root. The re-export modules live
+under `src/engine`, and this package extends its import path so established
+imports such as `engine.physics` continue to resolve.
 """
 
 from __future__ import annotations

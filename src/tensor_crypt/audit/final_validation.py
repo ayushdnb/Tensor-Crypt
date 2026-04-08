@@ -1,4 +1,4 @@
-"""Prompt 7 audit and validation harness."""
+"""Determinism, resume, and checkpoint validation harness."""
 
 from __future__ import annotations
 

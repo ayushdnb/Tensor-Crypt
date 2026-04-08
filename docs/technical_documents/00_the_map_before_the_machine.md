@@ -1,6 +1,6 @@
 # The Map Before the Machine
 
-This file is the orientation document for the Tensor Crypt learning suite. Its job is to make the repository legible before the reader studies internals. It names the major surfaces, shows how one run is assembled, separates simulation mechanics from learning and operator tooling, and gives a route through the remaining documents.
+This file is the orientation document for the Tensor Crypt technical document set. Its job is to make the repository legible before the reader studies internals. It names the major surfaces, shows how one run is assembled, separates simulation mechanics from learning and operator tooling, and gives a route through the remaining documents.
 
 ## What this file teaches
 
@@ -11,7 +11,7 @@ This file teaches the repository at map scale:
 - where the public entry surface ends and the internal package begins
 - how one launched run becomes a live simulation
 - which concepts matter early, and which can wait
-- where each class of question belongs in the five-document suite
+- where each class of question belongs in the five-document set
 
 ## What this file does not try to teach
 
@@ -89,14 +89,14 @@ The root surface is intentionally thin.
 
 | Surface | Purpose | What to assume |
 |---|---|---|
-| `config.py` | Canonical user-facing configuration entry | This is the authoritative control surface exposed at repository root |
+| `config.py` | Public configuration entry surface | Re-exports the canonical package configuration for repository-root use |
 | `run.py` | Primary launch entrypoint | This is the obvious human start path |
 | `main.py` | Alternate thin launch entrypoint | Same launch boundary, different root name |
-| legacy compatibility wrappers | Preserve older import surfaces | Useful for backwards compatibility, not for primary learning |
+| compatibility packages | Preserve older import surfaces | Useful for backward compatibility, not for primary learning |
 
 Two habits matter here.
 
-First, treat root `config.py` as the user control surface, even though the real config implementation lives inside the package. Second, treat root launch files as **entry shims**, not as the place where simulation rules live.
+First, treat root `config.py` as the public configuration entry surface, even though the canonical config implementation lives inside the package. Second, treat root launch files as **entry wrappers**, not as the place where simulation rules live.
 
 ### Internal package surface
 
@@ -112,7 +112,7 @@ The real implementation lives under the `tensor_crypt` package. At map level, th
 | `tensor_crypt.simulation` | engine orchestration and catastrophe manager |
 | `tensor_crypt.telemetry` | logging, summaries, run artifacts |
 | `tensor_crypt.checkpointing` | checkpoint capture, manifesting, restore |
-| `tensor_crypt.validation` | determinism, resume, catastrophe, save-load-save probes |
+| `tensor_crypt.audit` | determinism, resume, catastrophe, save-load-save probes |
 | `tensor_crypt.viewer` | interactive runtime UI |
 
 A third surface sits between these two worlds: the **config bridge**. Internal modules consume the canonical configuration through the package bridge, so the repository keeps one source of truth rather than multiple parallel config objects.
@@ -250,7 +250,7 @@ The correct next document depends on the kind of question you are asking.
 Before moving on, keep these five anchors in mind.
 
 1. The repository exposes a **thin public root surface** and keeps real implementation in the package.
-2. Root `config.py` is the **authoritative human control surface**, consumed internally through the config bridge.
+2. Root `config.py` is the **public human entry surface** for configuration, while the canonical implementation is consumed internally through the config bridge.
 3. The runtime builder is the **assembly boundary** where modules become one concrete session.
 4. The engine coordinates several distinct domains at once: **world rules, agent identity, learning ownership, population turnover, and operator logging**.
 5. A **slot is not a UID**. That distinction is foundational for understanding PPO ownership, lineage, respawn, and checkpoints.

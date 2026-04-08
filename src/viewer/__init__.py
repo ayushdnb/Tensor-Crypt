@@ -1,1 +1,1 @@
-"""Legacy viewer import re-exports."""
+"""Compatibility re-exports for legacy `viewer.*` imports."""

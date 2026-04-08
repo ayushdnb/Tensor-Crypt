@@ -20,7 +20,7 @@ class DataLogger:
     """
     Research-grade run logger.
 
-    Prompt 7 adds durable permanent ledgers without changing the simulation
+    The logger records durable ledgers without changing simulation
     semantics:
     - births remain logged at spawn time
     - deaths are finalized before UID retirement

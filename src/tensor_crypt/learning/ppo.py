@@ -1,8 +1,8 @@
 """
 Implements the Proximal Policy Optimization (PPO) algorithm.
 
-Prompt 4 hardens training ownership around canonical UIDs. Execution may still
-locate the live brain through slot lookup, but optimizer state, rollout state,
+Training ownership is anchored to canonical UIDs. Execution may still locate
+the live brain through slot lookup, but optimizer state, rollout state,
 bootstrap state, counters, and last-update summaries belong to `agent_uid`.
 """
 

@@ -58,6 +58,9 @@ renders/
 videos/
 tmp/
 temp/
+docs/reports/
+config_surface_truth_report.md
+public_surface_cleanup_notes.md
 
 # Operating system files
 .DS_Store

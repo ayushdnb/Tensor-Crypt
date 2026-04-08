@@ -1,1 +1,1 @@
-"""Legacy engine import re-exports."""
+"""Compatibility re-exports for legacy `engine.*` imports."""

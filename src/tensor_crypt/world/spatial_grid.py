@@ -78,6 +78,8 @@ class Grid:
                 self.grid[1, y1 : y2 + 1, x1 : x2 + 1] += rate
             elif cfg.GRID.HZ_OVERLAP_MODE == "last_wins":
                 self.grid[1, y1 : y2 + 1, x1 : x2 + 1] = rate
+            else:
+                raise ValueError(f"Unsupported GRID.HZ_OVERLAP_MODE: {cfg.GRID.HZ_OVERLAP_MODE!r}")
 
         if cfg.GRID.HZ_OVERLAP_MODE == "sum_clamped":
             self.grid[1] = torch.clamp(self.grid[1], -cfg.GRID.HZ_SUM_CLAMP, cfg.GRID.HZ_SUM_CLAMP)

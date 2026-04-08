@@ -1,8 +1,8 @@
 """
-Tensor Crypt package.
+Tensor Crypt implementation package.
 
-This package contains the real implementation modules for the project. The
-repository root keeps the public user-facing surface (`config.py`, `run.py`,
-`main.py`), while all internal imports flow through this package so execution
-does not depend on the working directory layout.
+This package contains the runtime, learning, telemetry, checkpointing, and
+viewer modules that define the project. The repository root keeps the public
+entry surfaces (`config.py`, `run.py`, `main.py`), while the implementation
+stays here so execution does not depend on the working-directory layout.
 """

@@ -1,6 +1,6 @@
 # The Learning and Lineage Notebook
 
-This file documents the learning substrate of Tensor Crypt: the observation contract, the bloodline MLP families, the PPO ownership model, the reward surface, and the reproduction/lineage mechanics that determine how policies and traits propagate through births. It is written against the uploaded code dump as implementation truth. The goal is not to restate generic reinforcement-learning theory, but to explain **what this repository actually does** and which invariants must remain stable if the system is to stay interpretable.
+This file documents the learning substrate of Tensor Crypt: the observation contract, the bloodline MLP families, the PPO ownership model, the reward surface, and the reproduction/lineage mechanics that determine how policies and traits propagate through births. It is written against the current codebase as implementation truth. The goal is not to restate generic reinforcement-learning theory, but to explain **what this repository actually does** and which invariants must remain stable if the system is to stay interpretable.
 
 ## What this file teaches
 
@@ -756,7 +756,7 @@ The tracked fields are:
 
 These summaries are keyed by UID and are serializable for checkpointing.
 
-A subtle but important detail is that the public config surface contains `TRACK_TRAINING_STATE`, but in the uploaded dump the runtime tracks training state regardless; the toggle itself is currently documented as unread.
+Training state is always tracked for each live UID in the current runtime. There is no separate `TRACK_TRAINING_STATE` toggle in the live config surface.
 
 ---
 
@@ -825,7 +825,7 @@ and uses a clamped budget allocation per trait:
 
 Those `\alpha_i` values are then used to linearly interpolate inside each trait’s allowed clamp range.
 
-### Clamp ranges in the uploaded dump
+### Clamp ranges in the current codebase
 
 The current trait clamp ranges are:
 
@@ -927,7 +927,7 @@ optionally scaled by runtime mutation overrides.
 
 ### Family-shift mutation
 
-Family-shift mutation exists as a real code path, but it is disabled by default in the uploaded configuration:
+Family-shift mutation exists as a real code path, but it is disabled by default in the current configuration:
 
 - `ENABLE_FAMILY_SHIFT_MUTATION = False`
 - `FAMILY_SHIFT_PROB = 0.0001`
@@ -1035,7 +1035,7 @@ The current default anchor selector is `trait_parent`.
 
 ### One subtlety about the fitness surface
 
-The visible writes in the uploaded dump show that `registry.fitness[slot]` is:
+The visible writes in the current codebase show that `registry.fitness[slot]` is:
 
 - reset to `0.0` at spawn, and
 - updated during death processing as `fitness * FITNESS_DECAY + HP_GAINED`.

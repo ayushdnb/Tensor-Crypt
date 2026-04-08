@@ -1,9 +1,9 @@
 """
-Legacy viewer compatibility package.
+Repository-root compatibility package for legacy `viewer.*` imports.
 
-Only the package stub remains at repository root. The thin re-export modules
-now live under `src/viewer`, while this package extends
-its import path so legacy imports such as `viewer.main` still resolve.
+Only the package stub remains at repository root. The re-export modules live
+under `src/viewer`, and this package extends its import path so established
+imports such as `viewer.main` continue to resolve.
 """
 
 from __future__ import annotations

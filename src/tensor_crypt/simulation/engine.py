@@ -326,7 +326,7 @@ class Engine:
     def step(self) -> None:
         self.registry.tick_counter = self.tick
 
-        # Prompt 6 deterministic scheduling boundary:
+        # Deterministic catastrophe scheduling boundary:
         # 1) expire / trigger catastrophes
         # 2) repaint baseline h-zones
         # 3) layer reversible catastrophe field + runtime modifiers
