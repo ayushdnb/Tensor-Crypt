@@ -1,20 +1,31 @@
 """Core simulation engine for Tensor Crypt.
 
 The engine owns tick ordering, PPO transition capture boundaries, and the
-point where checkpoint/telemetry side effects observe the simulation state.
-Per-slot brains intentionally remain independent modules, so forward batching is
-kept conservative here rather than forcing an unsafe family-stacking scheme
-that could blur UID ownership or checkpoint topology semantics.
+point where checkpoint/telemetry side effects observe the simulation state. The
+canonical inference path remains a per-brain loop keyed to slot/UID ownership,
+with an experimental opt-in same-family fast path that only stacks module state
+ephemerally for inference.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 import math
 from pathlib import Path
 from types import SimpleNamespace
 
 import torch
 from torch.distributions import Categorical
+
+try:
+    from torch.func import functional_call, stack_module_state, vmap
+
+    _HAS_TORCH_FUNC = True
+except Exception:
+    functional_call = None
+    stack_module_state = None
+    vmap = None
+    _HAS_TORCH_FUNC = False
 
 from ..checkpointing.atomic_checkpoint import manifest_path_for
 from ..checkpointing.runtime_checkpoint import capture_runtime_checkpoint, save_runtime_checkpoint
@@ -141,6 +152,12 @@ class Engine:
             device=self.registry.device,
             dtype=self.registry.data.dtype,
         )
+        self.last_inference_path_stats = {
+            "loop_slots": 0,
+            "vmap_slots": 0,
+            "family_loop_buckets": 0,
+            "family_vmap_buckets": 0,
+        }
 
         if getattr(self.logger, "bootstrap_initial_population", None) is not None:
             self.logger.bootstrap_initial_population(self.registry)
@@ -151,26 +168,136 @@ class Engine:
             return []
         return [int(slot_idx) for slot_idx in alive_indices.detach().cpu().tolist()]
 
+    @staticmethod
+    def _brain_topology_signature(brain) -> tuple | None:
+        getter = getattr(brain, "get_topology_signature", None)
+        if getter is None:
+            return None
+        return tuple(getter())
+
+    @staticmethod
+    def _slice_obs_batch(obs: dict, batch_positions: list[int]) -> dict:
+        device = next(iter(obs.values())).device
+        index = torch.tensor(batch_positions, device=device, dtype=torch.long)
+        return {key: value.index_select(0, index) for key, value in obs.items()}
+
+    def _family_bucket_is_vmap_eligible(self, slots: list[int]) -> bool:
+        if not cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE:
+            return False
+        if not _HAS_TORCH_FUNC:
+            raise RuntimeError("torch.func is unavailable but SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE=True")
+        if len(slots) < int(cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET):
+            return False
+
+        exemplar = self.registry.brains[slots[0]]
+        if exemplar is None or exemplar.training:
+            return False
+
+        exemplar_type = type(exemplar)
+        exemplar_signature = self._brain_topology_signature(exemplar)
+
+        for slot_idx in slots[1:]:
+            brain = self.registry.brains[slot_idx]
+            if brain is None or brain.training:
+                return False
+            if type(brain) is not exemplar_type:
+                return False
+            if self._brain_topology_signature(brain) != exemplar_signature:
+                return False
+
+        return True
+
+    def _family_vmap_forward(
+        self,
+        obs: dict,
+        batch_positions: list[int],
+        slots: list[int],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        bucket_obs = self._slice_obs_batch(obs, batch_positions)
+        brains = [self.registry.brains[slot_idx] for slot_idx in slots]
+        exemplar = brains[0]
+        params, buffers = stack_module_state(brains)
+
+        def _single_forward(single_params, single_buffers, single_obs):
+            single_obs_batch = {key: value.unsqueeze(0) for key, value in single_obs.items()}
+            logits, value = functional_call(
+                exemplar,
+                (single_params, single_buffers),
+                (single_obs_batch,),
+                strict=True,
+            )
+            return logits.squeeze(0), value.squeeze(0)
+
+        logits, values = vmap(
+            _single_forward,
+            in_dims=(0, 0, 0),
+            randomness="error",
+        )(params, buffers, bucket_obs)
+        return logits, values
+
+    def _loop_bucket_forward(
+        self,
+        obs: dict,
+        entries: list[tuple[int, int]],
+        all_logits: torch.Tensor,
+        all_values: torch.Tensor,
+    ) -> None:
+        for batch_pos, slot_idx in entries:
+            brain = self.registry.brains[slot_idx]
+
+            if brain is None:
+                all_logits[batch_pos, 0] = 1.0
+                continue
+
+            agent_obs = {key: value[batch_pos : batch_pos + 1] for key, value in obs.items()}
+            logits, value = brain(agent_obs)
+            all_logits[batch_pos] = logits.squeeze(0)
+            all_values[batch_pos] = value.squeeze(0)
+
     def _batched_brain_forward(self, obs: dict, alive_slots: list[int]):
         """Run inference for the currently alive slots without crossing UID ownership boundaries."""
         batch_size = len(alive_slots)
         device = next(iter(obs.values())).device
         all_logits = torch.zeros(batch_size, cfg.BRAIN.ACTION_DIM, device=device)
         all_values = torch.zeros(batch_size, cfg.BRAIN.VALUE_DIM, device=device)
+        self.last_inference_path_stats = {
+            "loop_slots": 0,
+            "vmap_slots": 0,
+            "family_loop_buckets": 0,
+            "family_vmap_buckets": 0,
+        }
 
-        for i, slot_idx in enumerate(alive_slots):
-            brain = self.registry.brains[slot_idx]
+        buckets: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for batch_pos, slot_idx in enumerate(alive_slots):
+            family_id = self.registry.get_family_for_slot(slot_idx)
+            buckets[str(family_id)].append((batch_pos, slot_idx))
 
-            if brain is None:
-                all_logits[i, 0] = 1.0
+        ordered_families = list(cfg.BRAIN.FAMILY_ORDER) + sorted(
+            family_id
+            for family_id in buckets
+            if family_id not in cfg.BRAIN.FAMILY_ORDER
+        )
+
+        for family_id in ordered_families:
+            entries = buckets.get(family_id, [])
+            if not entries:
                 continue
 
-            # Each live UID owns a distinct module/optimizer pair, so inference stays
-            # per-brain even though the surrounding tensors are batched by slot.
-            agent_obs = {key: value[i : i + 1] for key, value in obs.items()}
-            logits, value = brain(agent_obs)
-            all_logits[i] = logits.squeeze(0)
-            all_values[i] = value.squeeze(0)
+            batch_positions = [batch_pos for batch_pos, _ in entries]
+            slots = [slot_idx for _, slot_idx in entries]
+
+            if self._family_bucket_is_vmap_eligible(slots):
+                logits, values = self._family_vmap_forward(obs, batch_positions, slots)
+                index = torch.tensor(batch_positions, device=device, dtype=torch.long)
+                all_logits.index_copy_(0, index, logits)
+                all_values.index_copy_(0, index, values)
+                self.last_inference_path_stats["vmap_slots"] += len(slots)
+                self.last_inference_path_stats["family_vmap_buckets"] += 1
+                continue
+
+            self._loop_bucket_forward(obs, entries, all_logits, all_values)
+            self.last_inference_path_stats["loop_slots"] += len(slots)
+            self.last_inference_path_stats["family_loop_buckets"] += 1
 
         return all_logits, all_values
 

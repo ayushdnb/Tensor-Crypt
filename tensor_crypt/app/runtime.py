@@ -142,6 +142,8 @@ def validate_runtime_config() -> None:
         raise ValueError("LOG.LOG_TICK_EVERY must be positive")
     if int(cfg.LOG.SNAPSHOT_EVERY) <= 0:
         raise ValueError("LOG.SNAPSHOT_EVERY must be positive")
+    if int(cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET) <= 0:
+        raise ValueError("SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET must be positive")
     if int(cfg.PPO.UPDATE_EVERY_N_TICKS) <= 0:
         raise ValueError("PPO.UPDATE_EVERY_N_TICKS must be positive")
     if int(cfg.PPO.BATCH_SZ) <= 0:
@@ -172,6 +174,13 @@ def validate_runtime_config() -> None:
         raise ValueError("CATASTROPHE.MIN_DURATION_TICKS must be positive")
     if int(cfg.CATASTROPHE.MAX_DURATION_TICKS) < int(cfg.CATASTROPHE.MIN_DURATION_TICKS):
         raise ValueError("CATASTROPHE.MAX_DURATION_TICKS must be >= CATASTROPHE.MIN_DURATION_TICKS")
+    if cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE:
+        try:
+            import torch.func  # noqa: F401
+        except Exception as exc:
+            raise ValueError(
+                "SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE requires torch.func support in the current PyTorch build"
+            ) from exc
     if cfg.RESPAWN.OVERLAYS.COOLDOWN.ENABLED and not any(
         [
             cfg.RESPAWN.OVERLAYS.COOLDOWN.APPLY_TO_BRAIN_PARENT,

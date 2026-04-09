@@ -90,6 +90,17 @@ class SimConfig:
     # Controls reuse of the dense action scratch tensor.
     # Keeping this enabled reduces per-tick allocations and is the efficient default.
     REUSE_ACTION_BUFFER: bool = True  # Reuse the dense sparse-action tensor instead of reallocating it every tick.
+    #
+    # CURRENT STATUS: experimental runtime knob.
+    # Enables same-family inference batching via torch.func.
+    # This remains opt-in because real ROI depends on family bucket sizes and the
+    # local PyTorch build. The canonical loop remains the default.
+    EXPERIMENTAL_FAMILY_VMAP_INFERENCE: bool = False
+    #
+    # CURRENT STATUS: experimental runtime knob.
+    # Minimum same-family alive bucket size required before the engine attempts
+    # the torch.func fast path. Smaller buckets stay on the canonical per-brain loop.
+    EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET: int = 8
 
 
 @dataclass

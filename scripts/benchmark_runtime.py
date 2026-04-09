@@ -49,6 +49,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-dir", default="audit_tmp/benchmark_logs")
     parser.add_argument("--output", default="")
     parser.add_argument("--profile-top", type=int, default=0)
+    parser.add_argument("--experimental-family-vmap-inference", action="store_true")
+    parser.add_argument("--experimental-family-vmap-min-bucket", type=int, default=8)
     return parser.parse_args()
 
 
@@ -84,14 +86,33 @@ def _configure_runtime(args: argparse.Namespace) -> None:
     cfg.CHECKPOINT.KEEP_LAST = args.checkpoint_keep_last
     cfg.TELEMETRY.SUMMARY_EXPORT_CADENCE_TICKS = args.summary_cadence
     cfg.TELEMETRY.PARQUET_BATCH_ROWS = args.parquet_batch_rows
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = bool(args.experimental_family_vmap_inference)
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET = int(args.experimental_family_vmap_min_bucket)
 
 
-def _profiled_ticks(runtime, ticks: int, top_n: int) -> tuple[list[str], float]:
+def _zero_inference_stats() -> dict[str, int]:
+    return {
+        "loop_slots": 0,
+        "vmap_slots": 0,
+        "family_loop_buckets": 0,
+        "family_vmap_buckets": 0,
+    }
+
+
+def _accumulate_inference_stats(total: dict[str, int], current: dict | None) -> None:
+    current = current or {}
+    for key in total:
+        total[key] += int(current.get(key, 0))
+
+
+def _profiled_ticks(runtime, ticks: int, top_n: int) -> tuple[list[str], float, dict[str, int]]:
     profiler = cProfile.Profile()
+    inference_stats = _zero_inference_stats()
     profiler.enable()
     started = time.perf_counter()
     for _ in range(ticks):
         runtime.engine.step()
+        _accumulate_inference_stats(inference_stats, getattr(runtime.engine, "last_inference_path_stats", None))
     if cfg.SIM.DEVICE == "cuda":
         torch.cuda.synchronize()
     elapsed = time.perf_counter() - started
@@ -103,7 +124,7 @@ def _profiled_ticks(runtime, ticks: int, top_n: int) -> tuple[list[str], float]:
     stats = pstats.Stats(profiler, stream=capture).sort_stats("cumulative")
     stats.print_stats(top_n)
     lines = [line.rstrip() for line in capture.getvalue().splitlines() if line.strip()]
-    return lines, elapsed
+    return lines, elapsed, inference_stats
 
 
 def main() -> None:
@@ -127,12 +148,14 @@ def main() -> None:
             torch.cuda.synchronize()
 
         profile_lines: list[str] = []
+        inference_stats = _zero_inference_stats()
         if args.profile_top > 0:
-            profile_lines, elapsed = _profiled_ticks(runtime, args.ticks, args.profile_top)
+            profile_lines, elapsed, inference_stats = _profiled_ticks(runtime, args.ticks, args.profile_top)
         else:
             started = time.perf_counter()
             for _ in range(args.ticks):
                 runtime.engine.step()
+                _accumulate_inference_stats(inference_stats, getattr(runtime.engine, "last_inference_path_stats", None))
             if cfg.SIM.DEVICE == "cuda":
                 torch.cuda.synchronize()
             elapsed = time.perf_counter() - started
@@ -155,6 +178,9 @@ def main() -> None:
             "buffered_parquet_rows": int(runtime.data_logger.get_buffered_row_count()),
             "run_dir": str(run_dir),
             "profile_top_cumulative": profile_lines,
+            "experimental_family_vmap_inference": bool(cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE),
+            "experimental_family_vmap_min_bucket": int(cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET),
+            "inference_path_stats": inference_stats,
         }
     finally:
         runtime.data_logger.close(runtime.registry)
