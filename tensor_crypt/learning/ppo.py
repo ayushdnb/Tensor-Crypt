@@ -492,11 +492,16 @@ class PPO:
             empty = torch.empty(0, device=cfg.SIM.DEVICE)
             return empty, empty
 
+        trajectory_len = len(rewards)
         gae = rewards[0].new_zeros(())
-        returns: list[torch.Tensor] = [rewards[0].new_zeros(()) for _ in rewards]
+        returns_tensor = torch.empty(
+            trajectory_len,
+            device=cfg.SIM.DEVICE,
+            dtype=rewards[0].dtype,
+        )
 
-        for t in reversed(range(len(rewards))):
-            if t == len(rewards) - 1:
+        for t in reversed(range(trajectory_len)):
+            if t == trajectory_len - 1:
                 bootstrap_value = last_value
                 bootstrap_done = last_done
             else:
@@ -507,12 +512,11 @@ class PPO:
             value_t = values[t]
             delta = reward_t + cfg.PPO.GAMMA * bootstrap_value * (1 - bootstrap_done) - value_t
             gae = delta + cfg.PPO.GAMMA * cfg.PPO.LAMBDA * (1 - bootstrap_done) * gae
-            returns[t] = gae + value_t
+            returns_tensor[t] = gae + value_t
 
-        returns_tensor = torch.stack(returns).reshape(-1)
         values_tensor = torch.stack(values).reshape(-1)
         advantages_tensor = returns_tensor - values_tensor
-        return returns_tensor, advantages_tensor
+        return returns_tensor.reshape(-1), advantages_tensor
 
     def _resolve_bootstrap(self, uid: int, brain: nn.Module, buffer: _AgentBuffer) -> tuple[torch.Tensor, torch.Tensor]:
         if len(buffer) == 0:
