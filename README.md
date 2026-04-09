@@ -144,6 +144,7 @@ The file is organized by concern:
 - `VIEW`: window size, supported startup overlays, and catastrophe UI
 - `LOG`, `TELEMETRY`, `CHECKPOINT`, `VALIDATION`: logging cadence, export cadence, checkpoint policy, and audit switches
 - `IDENTITY`, `SCHEMA`, `MIGRATION`, `CATASTROPHE`: UID invariant strictness, schema versions, legacy visibility flags, and catastrophe scheduling
+- `SIM.EXPERIMENTAL_FAMILY_VMAP_*`: opt-in same-family inference batching for benchmarking on headless workloads without changing the default per-brain ownership-preserving loop
 
 Treat the checked-in values as one concrete scenario, not as universal recommendations. Many settings trade off visibility, logging volume, checkpoint frequency, and runtime cost.
 
@@ -205,6 +206,14 @@ python scripts/benchmark_runtime.py --device cpu --ticks 128 --warmup-ticks 16 -
 ```
 
 The benchmark configures a small runtime, executes a fixed number of ticks, and writes a JSON summary with elapsed time, ticks per second, memory use, final tick, final alive count, and the run directory.
+
+The harness also exposes the experimental inference fast path so you can compare the canonical loop against the family-local `torch.func` path under identical seeds and workloads:
+
+```bash
+python scripts/benchmark_runtime.py --device cpu --ticks 128 --warmup-ticks 16 --experimental-family-vmap-inference --experimental-family-vmap-min-bucket 8 --output benchmark_experimental.json
+```
+
+When enabled, the output JSON includes `experimental_family_vmap_inference`, `experimental_family_vmap_min_bucket`, and `inference_path_stats` so benchmark runs can distinguish loop-routed versus vmap-routed slots and buckets.
 
 ## Testing and validation
 

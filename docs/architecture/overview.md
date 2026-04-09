@@ -37,7 +37,7 @@ Tensor_Crypt/
 ## Module Responsibilities
 
 - `tensor_crypt.app`: launch-time setup and runtime graph assembly.
-- `tensor_crypt.simulation`: simulation tick orchestration and catastrophe scheduling.
+- `tensor_crypt.simulation`: simulation tick orchestration, catastrophe scheduling, and the default-safe per-brain inference path with an opt-in same-family experimental fast path.
 - `tensor_crypt.world`: grid substrate, procedural map generation, perception, and physics.
 - `tensor_crypt.agents`: brains plus UID and slot lifecycle state.
 - `tensor_crypt.learning`: PPO storage, ownership, optimizer state, and updates.
@@ -76,3 +76,4 @@ Tensor_Crypt/
 3. Keep compatibility-only re-exports in `engine/` or `viewer/`.
 4. Avoid introducing another implementation root or package bridge.
 5. Document any new public surface in `README.md`, this overview, and tests.
+6. Keep experimental runtime accelerators opt-in, benchmarkable, and reversible unless they have already been validated into the default path.
