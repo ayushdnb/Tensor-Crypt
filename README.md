@@ -12,6 +12,7 @@ The project name refers to the repository's dense tensor substrate and its empha
 - Bloodline-aware MLP policy/value networks with multiple family topologies
 - Batched perception with canonical observations and a legacy observation adapter
 - PPO training keyed by UID rather than by slot
+- Structured reproduction overlay doctrines: The Ashen Press, The Widow Interval, and The Bloodhold Radius
 - Structured telemetry in HDF5, Parquet, JSON, and PyTorch checkpoint files
 - Atomic checkpoint publishing with manifests, checksums, and a latest-pointer file
 - A pytest suite covering determinism, checkpoint restore, catastrophe scheduling, and runtime invariants
@@ -36,40 +37,45 @@ The runtime keeps dense tensors for speed, but identity is defined by monotonic 
 
 ```text
 .
-├── config.py                  # Repository-root config compatibility wrapper
+├── config.py                  # Public config compatibility wrapper
 ├── run.py                     # Primary launch entrypoint
 ├── main.py                    # Alternate launch entrypoint
-├── engine/                    # Compatibility package for legacy imports
-├── tensor_crypt/              # Repository-root namespace bridge
+├── tensor_crypt/              # Canonical implementation package
+│   ├── runtime_config.py      # Canonical config dataclasses and singleton cfg
+│   ├── agents/                # Brains and slot-backed registry
+│   ├── app/                   # Launch and runtime assembly
+│   ├── audit/                 # Determinism and checkpoint probes
+│   ├── checkpointing/         # Capture, restore, atomic publish, validation
+│   ├── learning/              # PPO
+│   ├── population/            # Evolution, reproduction, respawn
+│   ├── simulation/            # Engine and catastrophe manager
+│   ├── telemetry/             # Run paths, logger, lineage export
+│   ├── viewer/                # Pygame viewer
+│   └── world/                 # Grid, map generation, perception, physics
+├── engine/                    # Legacy compatibility imports
+├── viewer/                    # Legacy compatibility imports
 ├── scripts/
-│   └── benchmark_runtime.py   # Headless benchmark harness
-├── src/
-│   └── tensor_crypt/
-│       ├── runtime_config.py  # Canonical config dataclasses and singleton cfg
-│       ├── agents/            # Brains and slot-backed registry
-│       ├── app/               # Launch and runtime assembly
-│       ├── audit/             # Determinism and checkpoint probes
-│       ├── checkpointing/     # Capture, restore, atomic publish, validation
-│       ├── learning/          # PPO
-│       ├── population/        # Evolution, reproduction, respawn
-│       ├── simulation/        # Engine and catastrophe manager
-│       ├── telemetry/         # Run paths, logger, lineage export
-│       ├── viewer/            # Pygame viewer
-│       └── world/             # Grid, map generation, perception, physics
+│   ├── benchmark_runtime.py   # Headless benchmark harness
+│   ├── run_soak_audit.py      # Headless soak audit
+│   └── dump_py_to_text.py     # Source dump helper
+├── docs/
+│   ├── architecture/          # Structure and compatibility notes
+│   ├── reports/               # Audit, validation, and patch reports
+│   └── technical_documents/   # Deep technical reference material
 └── tests/                     # Pytest suite
 ```
 
-The implementation package lives under `src/tensor_crypt`. The repository root keeps thin launch wrappers and compatibility packages so the project can still be run directly from the root directory.
+`tensor_crypt/` is the only implementation root. The repository root keeps a small public surface (`config.py`, `run.py`, `main.py`) plus compatibility-only `engine/` and `viewer/` packages for legacy imports.
 
 ## Installation
 
-The repository includes packaging metadata in `pyproject.toml`, but a plain virtual environment is still the simplest way to run the project from a source checkout.
+The repository ships with standard packaging metadata. An editable install keeps imports, scripts, and tests aligned with the checked-out tree.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install torch numpy pygame pandas pyarrow h5py psutil pytest
+python -m pip install -e .[dev]
 ```
 
 On Windows PowerShell:
@@ -78,7 +84,7 @@ On Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install torch numpy pygame pandas pyarrow h5py psutil pytest
+python -m pip install -e .[dev]
 ```
 
 ## Quick start
@@ -112,6 +118,10 @@ The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 - `B`: toggle HP bars
 - `H`: toggle heal-zone overlay
 - `G`: toggle grid
+- `Shift+1`: toggle The Ashen Press runtime override
+- `Shift+2`: toggle The Widow Interval runtime override
+- `Shift+3`: toggle The Bloodhold Radius runtime override
+- `Shift+0`: clear reproduction doctrine runtime overrides
 - `F1`-`F12`: trigger catastrophes manually
 - `C`: clear active catastrophes
 - `Y`: cycle catastrophe mode
@@ -121,13 +131,13 @@ The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 
 ## Configuration
 
-The public configuration entry surface is `config.py`, which re-exports the canonical dataclasses and singleton `cfg` from `src/tensor_crypt/runtime_config.py`.
+The public configuration entry surface is `config.py`, which re-exports the canonical dataclasses and singleton `cfg` from `tensor_crypt/runtime_config.py`.
 
 The file is organized by concern:
 
 - `SIM`: seed, device, run length, and top-level runtime posture
 - `GRID` and `MAPGEN`: world size, heal/harm-field composition, and procedural substrate
-- `AGENTS`, `TRAITS`, `RESPAWN`, `EVOL`: population size, latent trait budgets/clamps, binary-parent respawn, and mutation
+- `AGENTS`, `TRAITS`, `RESPAWN`, `EVOL`: population size, latent trait budgets/clamps, binary-parent respawn, structured overlay doctrines, and mutation
 - `PERCEPT`: ray casting and observation layout
 - `BRAIN`: action/value dimensions, bloodline families, topology, and observation-compatibility policy
 - `PPO`: reward form, reward gating, rollout/update cadence, and UID ownership enforcement
@@ -136,6 +146,8 @@ The file is organized by concern:
 - `IDENTITY`, `SCHEMA`, `MIGRATION`, `CATASTROPHE`: UID invariant strictness, schema versions, legacy visibility flags, and catastrophe scheduling
 
 Treat the checked-in values as one concrete scenario, not as universal recommendations. Many settings trade off visibility, logging volume, checkpoint frequency, and runtime cost.
+
+The reproduction surface now includes a structured `RESPAWN.OVERLAYS` subtree. `CROWDING` configures The Ashen Press (crowding-gated reproduction overlay), `COOLDOWN` configures The Widow Interval (parent refractory reproduction overlay), `LOCAL_PARENT` configures The Bloodhold Radius (local lineage parent-selection overlay), and `VIEWER` controls HUD and hotkey exposure for the runtime override surface. When all three doctrines are disabled, the controller falls back to legacy binary-parent selection and placement behavior.
 
 The surface is intentionally narrower than older audit prose may imply. The dead and documentary-only knobs that were not wired have been removed. Two notable special cases remain: `TRAITS.INIT` is a legacy/template container retained for compatibility and documentation even though the live birth path uses latent decoding, and `TELEMETRY.ENABLE_DEEP_LEDGERS` only gates initial root-seed deep-ledger seeding rather than the broader telemetry stack.
 
@@ -182,7 +194,7 @@ Runtime checkpoints are controlled by `cfg.CHECKPOINT`. When periodic checkpoint
 - a manifest file with checksums and metadata
 - `latest_checkpoint.json` pointing to the most recent published checkpoint
 
-The checkpoint code validates schema versions, UID bindings, PPO state, and manifest metadata during load.
+The checkpoint code validates schema versions, UID bindings, PPO state, and manifest metadata during load. Checkpoint bundles also persist reproduction doctrine runtime state: viewer-toggled doctrine overrides plus The Widow Interval cooldown ledgers are restored on resume instead of snapping back to config defaults.
 
 ## Benchmarking
 
@@ -213,6 +225,7 @@ The repository includes a substantial pytest suite. Based on the test names and 
 - checkpoint round-trip and restore validation
 - atomic checkpoint publish and manifest validation
 - catastrophe scheduling, replay, and viewer state
+- reproduction doctrine behavior, runtime hotkeys, and overlay checkpoint round-trips
 - lineage export and telemetry schema checks
 - benchmark smoke coverage
 

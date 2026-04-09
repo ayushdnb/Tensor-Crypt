@@ -267,3 +267,56 @@ def test_hotkeys_toggle_overlays_speed_and_catastrophe_controls(runtime_builder)
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_u}))
     viewer.input_handler.handle()
     assert runtime.engine.catastrophes.auto_enabled != auto_before
+
+
+def test_viewer_hotkeys_toggle_reproduction_overlay_doctrines(runtime_builder):
+    runtime = runtime_builder(seed=607, width=16, height=16, agents=6, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
+    controller = runtime.engine.respawn_controller
+
+    assert controller.get_doctrine_effective_enabled("crowding") is False
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_1, "mod": pygame.KMOD_SHIFT}))
+    viewer.input_handler.handle()
+    assert controller.get_doctrine_effective_enabled("crowding") is True
+
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_2, "mod": pygame.KMOD_SHIFT}))
+    viewer.input_handler.handle()
+    assert controller.get_doctrine_effective_enabled("cooldown") is True
+
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_3, "mod": pygame.KMOD_SHIFT}))
+    viewer.input_handler.handle()
+    assert controller.get_doctrine_effective_enabled("local_parent") is True
+
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_0, "mod": pygame.KMOD_SHIFT}))
+    viewer.input_handler.handle()
+    assert controller.doctrine_overrides == {"crowding": None, "cooldown": None, "local_parent": None}
+
+
+def test_side_panel_controls_include_reproduction_overlay_hotkeys(runtime_builder, monkeypatch):
+    runtime = runtime_builder(seed=608, width=14, height=14, agents=6, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
+    state_data = viewer._prepare_state_data()
+
+    captured = []
+
+    def fake_render(text, size, color, aa=True):
+        captured.append(str(text))
+        return pygame.Surface((max(1, len(str(text))), max(1, int(size))))
+
+    monkeypatch.setattr(viewer.side_panel.text, "render", fake_render)
+    surface = pygame.Surface((viewer.Wpix, viewer.Hpix))
+    viewer.side_panel.draw(surface, state_data)
+
+    assert "Ashen Press: Shift+1" in captured
+    assert "Widow Interval: Shift+2" in captured
+    assert "Bloodhold Radius: Shift+3" in captured
+    assert "Clear Doctrine Overrides: Shift+0" in captured
+
+
+def test_prepare_state_data_exposes_overlay_status(runtime_builder):
+    runtime = runtime_builder(seed=609, width=14, height=14, agents=6, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    state_data = runtime.viewer._prepare_state_data()
+
+    assert "respawn_overlay_state" in state_data
+    assert "doctrines" in state_data["respawn_overlay_state"]
+    assert {"crowding", "cooldown", "local_parent"}.issubset(state_data["respawn_overlay_state"]["doctrines"].keys())

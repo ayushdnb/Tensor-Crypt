@@ -2,10 +2,10 @@
 
 ## Preserved Import Surfaces
 
-- `tensor_crypt.*` remains valid from repository root via `tensor_crypt/__init__.py`.
-- Legacy `engine.*` imports remain valid from a source checkout via the root package stub plus `src/engine`.
-- Legacy `viewer.*` imports remain valid from a source checkout via the root package stub plus `src/viewer`.
-- Package builds install `engine` and `viewer` directly from `src/engine` and `src/viewer`.
+- `tensor_crypt.*` is the canonical implementation surface from both source checkouts and installed builds.
+- Legacy `engine.*` imports remain valid via thin root-level re-export modules.
+- Legacy `viewer.*` imports remain valid via thin root-level re-export modules.
+- Root `config.py` remains importable and shares the exact same `cfg` object as `tensor_crypt.runtime_config`.
 
 ## Preserved Launch Surfaces
 
@@ -13,13 +13,15 @@
 - `python main.py`
 - `tensor-crypt`
 
-## Preserved Config Surface
+## Canonical Truth Locations
 
-- Root `config.py` remains the canonical configuration source.
-- Internal modules continue to consume config through `tensor_crypt.config_bridge`.
-- Package builds include the root `config` module so the bridge works outside a source checkout.
+- Implementation code: `tensor_crypt/`
+- Config singleton and dataclasses: `tensor_crypt/runtime_config.py`
+- Public config wrapper: `config.py`
+- Legacy import shims: `engine/` and `viewer/`
 
 ## Scope of Compatibility
 
 - Compatibility is guaranteed for source-tree execution, package builds, and repository test contracts.
 - Wrapper modules remain intentionally thin and contain no business logic.
+- No compatibility layer owns simulation, PPO, checkpointing, telemetry, or viewer semantics.

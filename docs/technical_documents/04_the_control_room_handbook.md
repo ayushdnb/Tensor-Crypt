@@ -129,7 +129,7 @@ The table below is the compact working map of the root config surface. The “hi
 | `PHYS` | deterministic combat and environment cost model | damage/penalty constants, `TIE_BREAKER` | — | changes environment difficulty and death patterns directly |
 | `PERCEPT` | canonical observation contract and normalization constants | canonical feature counts, `NUM_RAYS`, legacy bridge widths, normalization constants | `RETURN_CANONICAL_OBSERVATIONS` | schema-sensitive; shapes must stay aligned end-to-end |
 | `BRAIN` | bloodline family set, topology, colors, head dimensions | `ACTION_DIM`, `VALUE_DIM`, `FAMILY_ORDER`, `FAMILY_SPECS`, `ALLOW_LEGACY_OBS_FALLBACK` | `FAMILY_COLORS` | family topology is checkpoint-visible |
-| `RESPAWN` | binary reproduction, extinction handling, placement, newborn HP | thresholds, selector policy, extinction policy, placement rules, birth HP mode | `LOG_PLACEMENT_FAILURES` | changes lineage and population recovery semantics |
+| `RESPAWN` | binary reproduction, extinction handling, placement, newborn HP, and doctrine overlays | thresholds, selector policy, extinction policy, overlay doctrine rules, placement rules, birth HP mode | `LOG_PLACEMENT_FAILURES` | changes lineage and population recovery semantics |
 | `PPO` | reward surface, rollout cadence, update strength, ownership rules | reward form/gating, batch/epoch/clip/LR, `OWNERSHIP_MODE`, bootstrap strictness | family-aware update ordering | slot-based ownership is not supported; UID ownership is canonical |
 | `EVOL` | mutation and fitness carryover | fitness decay, policy noise, trait mutation sigmas, rare mutation path, family shift | — | births and long-horizon lineage drift live here |
 | `VIEW` | viewer startup defaults and rendering presentation | catastrophe panel/overlay flags | FPS, overlays, legend visibility, shade strength, window size | mostly presentational, but the viewer also contains semantic controls |
@@ -215,6 +215,19 @@ The following surfaces are intentionally narrow. Do not treat them as general mo
 | `PPO.REWARD_GATE_MODE` | `"off"`, `"hp_ratio_min"`, `"hp_abs_min"` |
 | `TELEMETRY.LINEAGE_EXPORT_FORMAT` | JSON export only in the observed code |
 
+### Structured reproduction overlay control surface
+
+`RESPAWN.OVERLAYS` is a nested semantic control surface, not a loose cluster of viewer booleans.
+
+| Branch | Operator name | What it changes | Below-floor policy | Runtime control |
+|---|---|---|---|---|
+| `CROWDING` | The Ashen Press | anchor-neighborhood crowding gate before placement; `block_birth` or `global_only` when crowded | `strict`, `bypass`, `global_only` | `Shift+1` toggles runtime override |
+| `COOLDOWN` | The Widow Interval | UID-scoped refractory ledgers for parent roles; unified or per-role | `allow_best_available`, `bypass`, `strict` | `Shift+2` toggles runtime override |
+| `LOCAL_PARENT` | The Bloodhold Radius | parent candidate pool around the dead slot; `global` or `strict` fallback when the local pool is empty | `prefer_local_then_global`, `bypass`, `strict` | `Shift+3` toggles runtime override |
+| `VIEWER` | HUD/help exposure | whether hotkeys, HUD state, panel state, and override markers are shown | n/a | `Shift+0` clears overrides |
+
+Runtime doctrine overrides live inside `RespawnController.doctrine_overrides`, not in `cfg`. The viewer hotkeys change only that runtime state. Checkpoint capture serializes both doctrine overrides and The Widow Interval cooldown ledgers, so a resumed run continues with the same effective doctrine state instead of snapping back to config defaults.
+
 ## Viewer and operator-facing surfaces
 
 The viewer is not merely a renderer. It is the live operator console for stepping the engine, inspecting agents and zones, watching catastrophe state, and, in limited cases, changing runtime state.
@@ -238,8 +251,8 @@ That last point matters. The viewer is not purely observational.
 | Surface | What it shows | What it can change |
 |---|---|---|
 | world pane | walls, heal/harm zones, agents, HP bars, rays, selection markers, catastrophe overlay | selection, zoom, pan |
-| HUD | tick, pause/speed state, alive count, per-family counts, catastrophe status line | none directly |
-| side inspector | selected agent details or selected H-Zone details, bloodline legend, catastrophe block, controls cheat sheet | none directly |
+| HUD | tick, pause/speed state, alive count, per-family counts, catastrophe status line, reproduction doctrine line | none directly |
+| side inspector | selected agent details or selected H-Zone details, bloodline legend, reproduction doctrine block, catastrophe block, controls cheat sheet | none directly |
 | catastrophe controls | mode, active shocks, next tick, pause state | manual trigger, clear, mode cycle, auto enable, scheduler pause |
 | selected H-Zone editor | selected zone bounds and rate | `+` / `-` mutates zone rate |
 
@@ -274,11 +287,12 @@ This overlay is presentation-only. The actual shock semantics come from the cata
 
 The viewer does not directly edit policy parameters, PPO buffers, registry ownership maps, or checkpoint bundles.
 
-It does, however, affect run state in three limited ways:
+It does, however, affect run state in four limited ways:
 
 1. stepping control changes when engine ticks occur
 2. catastrophe hotkeys route to `CatastropheManager`
-3. selected H-Zone editing changes a zone’s rate on the grid
+3. reproduction doctrine hotkeys route to `RespawnController` runtime overrides without mutating `config.py` on disk
+4. selected H-Zone editing changes a zone’s rate on the grid
 
 That distinction is important. Many UI toggles are visibility-only, but the viewer is not a fully read-only instrument panel.
 
@@ -291,6 +305,8 @@ The UI exposes many keys, but the working distinction is this:
 - **visibility controls**: rays, HP bars, H-Zones, grid, catastrophe panel
 - **semantic controls**:
   - selected H-Zone `+` / `-` changes zone rate
+  - `Shift+1`, `Shift+2`, `Shift+3` toggle reproduction doctrine runtime overrides
+  - `Shift+0` clears reproduction doctrine runtime overrides
   - `F1..F12` trigger catastrophe roster entries by roster index
   - `C` clears active catastrophe state
   - `Y`, `U`, `O` alter catastrophe scheduling mode/auto/pause
@@ -349,6 +365,8 @@ The code explicitly documents four telemetry invariants:
 - deaths are finalized before UID retirement
 - life rows are emitted exactly once per UID at death or close
 - lineage export is derived from the canonical UID/parent-role substrate
+
+Birth rows now also carry doctrine-specific diagnostics such as local-parent fallback usage, cooldown relaxation, and crowding policy or failure fields. Those columns are part of the operational evidence when one birth slot was blocked or softened by doctrine policy rather than by a broader runtime fault.
 
 That is the right way to think about the logger: it is not collecting loosely related metrics. It is maintaining a durable history indexed by canonical identity.
 
@@ -475,7 +493,7 @@ The captured bundle includes these top-level surfaces:
 
 At a practical level, those surfaces contain:
 
-- engine tick and respawn-controller last tick
+- engine tick, respawn-controller last tick, doctrine overrides, and cooldown ledgers
 - optional serialized catastrophe state
 - dense registry tensor state
 - canonical `slot_uid` and `slot_parent_uid`
@@ -549,7 +567,7 @@ Restore is intentionally conservative. In order, it rebuilds:
 2. active UID map and lineage ledgers
 3. per-slot family bindings and brains reconstructed from saved family IDs
 4. grid tensor and H-Zone state
-5. engine tick and respawn-controller last tick
+5. engine tick, respawn-controller last tick, and persisted doctrine runtime state
 6. PPO buffers and training state
 7. per-UID optimizers, validated against live brain topology
 8. scaler state
@@ -584,6 +602,7 @@ Examples:
 - every saved brain topology signature matches the topology for its family in the current code
 - serialized PPO buffers satisfy the expected payload schema
 - catastrophe state schema matches when strict catastrophe validation is enabled
+- respawn overlay runtime state is a dict when present
 - manifest tick, active UID count, schema version, and optional config fingerprint match the bundle
 
 This is the checkpoint trust boundary. If you change a persistence-visible surface, this validator is part of the change.
@@ -622,6 +641,7 @@ The determinism probe is stronger than a simple “same final tick” test. Its 
 - `uid_family`
 - `uid_generation_depth`
 - catastrophe mode and next auto tick
+- serialized respawn overlay runtime state
 - digests of registry data, fitness, grid, and active brain states
 - PPO update counts
 - PPO buffer sizes
@@ -733,9 +753,10 @@ The final validation harness is the library-level composition of determinism, re
 The observed tests include direct checks for:
 
 - checkpoint roundtrip restoring catastrophe state
-- Veil of Somnyr affecting the canonical vision feature without mutating unrelated canonical self features
+- reproduction doctrine birth blocking, fallback softening, and cooldown rotation
 - viewer catastrophe hotkeys routing to the catastrophe manager
-- final validation-suite behavior under config flags
+- viewer reproduction doctrine hotkeys and HUD/panel exposure
+- final validation-suite behavior under config flags, including doctrine runtime state in signatures
 
 These tests are not a replacement for the main probes, but they are evidence that those surfaces are expected to remain stable.
 
@@ -791,7 +812,7 @@ If compatibility is intentionally broken, say so in schema and validation surfac
 This repository contains both.
 
 - overlays and legend visibility are read-only presentation
-- catastrophe hotkeys and H-Zone rate editing are runtime controls
+- catastrophe hotkeys, reproduction doctrine hotkeys, and H-Zone rate editing are runtime controls
 
 Treat those classes differently.
 
@@ -804,6 +825,7 @@ This is a real risk in the viewer.
 Examples:
 - using selected H-Zone `+` / `-` edits the live zone rate
 - catastrophe hotkeys alter the catastrophe manager, not just the panel
+- reproduction doctrine hotkeys alter `RespawnController` runtime state, not just the HUD text
 - changing how catastrophe state is displayed is safe only if you stay in the renderer and panels
 
 ### 2. Drifting config, schema, and checkpoint surfaces out of agreement
@@ -841,7 +863,16 @@ The catastrophe design resets runtime modifiers and repaints baseline H-Zones be
 
 A dangerous change is to mutate baseline field or trait state permanently when the design expects temporary override semantics.
 
-### 6. Adding telemetry that quietly changes runtime cadence assumptions
+### 6. Letting catastrophe modifiers trample reproduction doctrine state
+
+`RespawnController` now owns two distinct runtime surfaces:
+
+- catastrophe-supplied reproduction and mutation modifiers
+- reproduction doctrine overrides plus cooldown ledgers
+
+Treating them as one bucket will corrupt viewer truth, checkpoint restore, or both. Catastrophe reset should clear only catastrophe-owned modifiers, while doctrine overrides must stay stable until the operator changes them or a checkpoint restore replaces them.
+
+### 7. Adding telemetry that quietly changes runtime cadence assumptions
 
 Telemetry is buffered on purpose. A naive new write in a hot path can change the cost profile of the simulation, especially if it bypasses batching or adds repeated CPU transfers.
 
@@ -852,7 +883,7 @@ When adding telemetry, always decide:
 - does it need a schema version implication?
 - does it belong in parquet, HDF5, or lineage JSON?
 
-### 7. Treating guarded surfaces as though they were fully flexible mode knobs
+### 8. Treating guarded surfaces as though they were fully flexible mode knobs
 
 Several config fields exist specifically to preserve explicit compatibility surfaces. They are not invitations to assume multi-mode support.
 
@@ -864,17 +895,17 @@ The right pattern is:
 
 not the reverse.
 
-### 8. Relaxing strict checkpoint validation without understanding what proof you are losing
+### 9. Relaxing strict checkpoint validation without understanding what proof you are losing
 
 Turning off strict schema, UID, PPO, or manifest validation can be useful during controlled migration work, but it also removes evidence that a resume is faithful.
 
 Do not disable strictness merely to make a new checkpoint load.
 
-### 9. Changing catastrophe scheduling without rerunning catastrophe reproducibility checks
+### 10. Changing catastrophe scheduling without rerunning catastrophe reproducibility checks
 
 Catastrophe state depends on its own seeded RNG stream, schedule planning, type selection, and duration logic. Any change there needs catastrophe repro coverage, and often determinism coverage as well.
 
-### 10. Forgetting that run artifacts are part of the operational contract
+### 11. Forgetting that run artifacts are part of the operational contract
 
 `config.json`, `run_metadata.json`, checkpoint manifests, lineage export, tick summaries, and life/death ledgers are not disposable extras. They are part of how the system explains itself after execution.
 
@@ -890,10 +921,11 @@ Before committing, ask all of the following explicitly:
 6. Did I add telemetry or viewer features that alter hot-path runtime cost or artifact schema?
 7. Did I accidentally place a semantic change in a viewer, telemetry, or compatibility layer?
 8. Do determinism, resume consistency, catastrophe repro, and save-load-save probes still pass for the affected area?
-9. Do run metadata, config comments, and emitted artifacts still describe reality?
-10. If I touched a guarded surface, did I either preserve the guard or implement the missing runtime branch completely?
-11. If I touched catastrophe logic, did I preserve reversible override semantics and checkpoint restore behavior?
-12. If I touched reproduction, observation, or PPO logic, did I re-check lineage, buffer ownership, and active UID invariants?
+9. If I touched reproduction doctrines or other runtime overrides, do HUD state, hotkeys, telemetry, and checkpoint restore all agree on the same live truth?
+10. Do run metadata, config comments, and emitted artifacts still describe reality?
+11. If I touched a guarded surface, did I either preserve the guard or implement the missing runtime branch completely?
+12. If I touched catastrophe logic, did I preserve reversible override semantics and checkpoint restore behavior?
+13. If I touched reproduction, observation, or PPO logic, did I re-check lineage, buffer ownership, and active UID invariants?
 
 ## End-of-file recap
 

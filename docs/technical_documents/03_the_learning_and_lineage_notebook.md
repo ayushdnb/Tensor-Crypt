@@ -1009,6 +1009,16 @@ The anchor parent determines:
 
 The placement routine searches shuffled square-ring candidates around the anchor parent, subject to wall, occupancy, and harm-zone constraints, with optional global fallback.
 
+### Overlay doctrines layered onto binary parenting
+
+Binary parenting is the substrate. Three optional overlays constrain it without replacing the three-role model:
+
+- The Ashen Press is a crowding gate on the anchor neighborhood. It can block a birth or force global placement fallback when the chosen anchor is surrounded too tightly.
+- The Widow Interval is a UID-scoped refractory overlay for recently used parents. Because it keys by UID rather than slot, slot reuse does not corrupt lineage eligibility.
+- The Bloodhold Radius builds the candidate pool from living agents near the dead slot being refilled. It can either fall back to global selection or fail that one birth slot strictly.
+
+When all three doctrines are disabled, parent selection and placement revert to the legacy binary-parent behavior. When floor recovery is active, each doctrine has its own softening policy so emergency recovery can stay possible without silently erasing operator intent.
+
 ### Canonical lineage meaning of `parent_uid`
 
 A crucial mechanical point:

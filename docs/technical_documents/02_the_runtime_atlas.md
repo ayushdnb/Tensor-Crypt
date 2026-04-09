@@ -35,10 +35,11 @@ The repository keeps a small public surface at root and pushes real implementati
 | `config.py` | canonical user configuration surface | re-exports `tensor_crypt.runtime_config` |
 | `run.py` | obvious public launch surface | delegates to `tensor_crypt.app.launch.main()` |
 | `main.py` | alternate public launch surface | also delegates to `tensor_crypt.app.launch.main()` |
-| root `engine` package stub | legacy import compatibility | extends import path so imports such as `engine.physics` continue to resolve into `src/engine` thin re-exports |
-| root `tensor_crypt` namespace bridge | implementation-package compatibility | extends import path so `import tensor_crypt.*` works from repository root while canonical code lives under `src/tensor_crypt` |
+| root `engine` package | legacy import compatibility | thin re-export modules keep imports such as `engine.physics` resolving without owning implementation logic |
+| root `viewer` package | legacy import compatibility | thin re-export modules keep imports such as `viewer.main` resolving without owning implementation logic |
+| root `tensor_crypt` package | canonical implementation surface | contains the single authoritative runtime, learning, telemetry, checkpointing, and viewer code |
 
-The important architectural point is that the repository root is a compatibility and user-entry layer, not the place where simulation rules live.
+The important architectural point is that the repository root keeps a very small public surface, while simulation rules still live inside the `tensor_crypt` package rather than in standalone root modules.
 
 ### Internal package surface
 
@@ -122,6 +123,7 @@ It explicitly does **not** own simulation rules.
 - `BRAIN.INITIAL_FAMILY_ASSIGNMENT` must be `round_robin` or `weighted_random`
 - `RESPAWN.MODE` must be `binary_parented`
 - `RESPAWN.ANCHOR_PARENT_SELECTOR`, `RESPAWN.EXTINCTION_POLICY`, and `RESPAWN.BIRTH_HP_MODE` must come from explicit supported sets
+- `RESPAWN.OVERLAYS.CROWDING`, `RESPAWN.OVERLAYS.COOLDOWN`, and `RESPAWN.OVERLAYS.LOCAL_PARENT` policy enums and numeric doctrine knobs are validated explicitly, and cooldown enablement must target at least one parent role
 - `GRID.HZ_OVERLAP_MODE`, `PHYS.TIE_BREAKER`, and `TELEMETRY.LINEAGE_EXPORT_FORMAT` must come from explicit supported sets
 - `PPO.OWNERSHIP_MODE` must be `uid_strict`
 - `CATASTROPHE.DEFAULT_MODE` and `CATASTROPHE.AUTO_STATIC_ORDERING_POLICY` must come from explicit supported sets
@@ -550,6 +552,7 @@ The controller owns:
 - `last_respawn_tick`
 - runtime reproduction gate override
 - runtime mutation overrides supplied by catastrophes
+- separate reproduction doctrine runtime overrides plus The Widow Interval cooldown ledgers
 
 It does **not** own the canonical agent ledger. It coordinates births through the registry and evolution helpers.
 
@@ -587,6 +590,16 @@ The runtime consequence is important:
 
 - lineage is not stored as a single ambiguous parent pointer
 - brain inheritance, trait inheritance, and placement anchoring can diverge while still being recorded explicitly
+
+### Reproduction overlay doctrines
+
+The binary parent substrate now has three orthogonal overlay doctrines layered on top of it. They do not replace the three-role model; they constrain candidate selection or placement around it.
+
+- The Ashen Press (`RESPAWN.OVERLAYS.CROWDING`) counts live neighbors around the chosen anchor parent. When the neighborhood exceeds `MAX_NEIGHBORS`, the controller either blocks the birth or skips straight to global placement fallback, with a separate below-floor policy that can keep recovery permissive.
+- The Widow Interval (`RESPAWN.OVERLAYS.COOLDOWN`) tracks recently used parent UIDs in refractory ledgers. The ledgers are UID-scoped rather than slot-scoped, can be unified or per-role, and can soften below the population floor via `allow_best_available` or `bypass` instead of deadlocking recovery.
+- The Bloodhold Radius (`RESPAWN.OVERLAYS.LOCAL_PARENT`) builds the parent candidate pool from living agents near the dead slot that is about to be reused. It can fall back to global selection or fail that birth slot strictly, with a separate below-floor policy for recovery.
+
+These doctrine states are independently configurable, independently runtime-toggleable in the viewer, and intentionally separate from catastrophe mutation and reproduction modifiers.
 
 ### Birth path
 
@@ -659,7 +672,7 @@ This happens before the engine repaints baseline H-zones and before runtime over
 4. writes the resulting field back into `grid.grid[1]`
 5. pushes the runtime modifiers into the owning subsystems
 
-This is why catastrophes are reversible. There is no need to permanently mutate stored trait values or canonical zone definitions.
+This is why catastrophes are reversible. There is no need to permanently mutate stored trait values or canonical zone definitions. Catastrophe reset logic deliberately leaves reproduction doctrine overrides and cooldown ledgers alone; those are owned by the respawn controller rather than the catastrophe modifier channel.
 
 ### Which subsystems catastrophes can affect
 
@@ -668,7 +681,7 @@ This is why catastrophes are reversible. There is no need to permanently mutate 
 | `Grid` | transient H-zone field rewriting |
 | `Perception` | runtime `vision_scale` |
 | `Physics` | collision and metabolism multipliers, catastrophe state for death-context attribution |
-| `RespawnController` | reproduction enable gate and mutation override scalars |
+| `RespawnController` | reproduction enable gate and mutation override scalars; doctrine overrides and cooldown ledgers stay on a separate runtime channel |
 | `DataLogger` | exposure and survival tracking by catastrophe event id |
 | `Viewer` | catastrophe status panel and optional overlay data derived from current status |
 
@@ -711,7 +724,7 @@ Checkpoint capture reads from a narrow substrate view containing:
 
 The captured bundle includes:
 
-- engine tick and respawn checkpoint-visible state
+- engine tick, respawn-controller last tick, and serialized respawn overlay runtime state
 - catastrophe state when configured
 - registry dense data and UID ledgers
 - grid tensor and H-zone definitions
@@ -726,7 +739,7 @@ Restore order is conservative and intentional:
 2. rebuild active UID-to-slot bindings
 3. reinstantiate brains for active UIDs
 4. restore grid
-5. restore engine tick and respawn last tick
+5. restore engine tick, respawn last tick, and persisted reproduction doctrine runtime state
 6. restore PPO buffers and optimizer state
 7. restore RNG
 8. restore catastrophe state
@@ -747,6 +760,7 @@ The validation harness observes the runtime through signatures rather than throu
 - `uid_family`
 - `uid_generation_depth`
 - catastrophe status
+- serialized respawn overlay runtime state
 - digests of registry data, fitness, and grid tensors
 - brain-state digests by active UID
 - PPO update counts, buffer sizes, optimizer UID set

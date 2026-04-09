@@ -402,6 +402,16 @@ A tile can be rejected for several reasons, depending on config:
 
 So “a birth failed” does not necessarily mean reproduction logic broke. It often means the world did not offer a legal cell.
 
+### Optional reproduction doctrines
+
+The binary parent model can be layered with three optional doctrines:
+
+- The Ashen Press is a crowding gate around the anchor parent. In crowded neighborhoods it can either block the birth or force the controller to jump straight to global free-cell fallback.
+- The Widow Interval is a short refractory window for recently used parent UIDs. It rotates parent choice when alternatives exist without changing lineage ownership rules.
+- The Bloodhold Radius restricts parent selection to living agents near the dead slot that is about to be reused, with optional global fallback if the local pool is empty.
+
+These overlays are independent. Turning them all off restores the legacy binary-parent behavior. When the population is below the recovery floor, each doctrine has its own policy for whether to stay strict, soften, or bypass itself so emergency recovery does not deadlock accidentally.
+
 ### Floor recovery
 
 When the population is below the floor, parent selection becomes more permissive if floor-recovery threshold suspension is enabled. In practice, this means the controller relaxes normal eligibility thresholds so the run can recover more aggressively.
