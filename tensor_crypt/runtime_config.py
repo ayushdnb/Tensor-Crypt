@@ -122,7 +122,7 @@ class GridConfig:
     # World height in cells.
     # Larger values deepen the arena, with similar sparsity and cost implications as increasing
     # width.
-    H: int = 128
+    H: int = 100
     #
     # CURRENT STATUS: active runtime knob.
     # Heal/harm zone overlap-composition mode.
@@ -353,7 +353,7 @@ class RespawnConfig:
     # CURRENT STATUS: active runtime knob.
     # Upper bound on births emitted in one respawn cycle.
     # Raise for more aggressive population recovery.
-    MAX_SPAWNS_PER_CYCLE: int = 10
+    MAX_SPAWNS_PER_CYCLE: int = 3
     #
     # CURRENT STATUS: active runtime knob.
     # Soft lower population threshold that triggers recovery behavior.
@@ -363,7 +363,7 @@ class RespawnConfig:
     # CURRENT STATUS: active runtime knob.
     # Upper population ceiling for births.
     # No births are emitted once live population is at or above this value.
-    POPULATION_CEILING: int = 150
+    POPULATION_CEILING: int = 350
 
     # Prompt 5 reproduction control surface.
     #
@@ -420,7 +420,6 @@ class RespawnConfig:
     # Documented emergency two-parent requirement knob.
     # No direct runtime read was found in the uploaded dump.
     FLOOR_RECOVERY_REQUIRE_TWO_PARENTS: bool = True
-
     #
     # CURRENT STATUS: active runtime knob.
     # Structured overlay doctrines layered on top of the binary reproduction
@@ -454,7 +453,7 @@ class RespawnConfig:
     # CURRENT STATUS: active runtime knob.
     # Maximum ring radius used for local offspring placement search.
     # Larger values widen the local search envelope.
-    OFFSPRING_JITTER_RADIUS_MAX: int = 4
+    OFFSPRING_JITTER_RADIUS_MAX: int = 3
     #
     # CURRENT STATUS: active runtime knob.
     # Hard cap on local placement attempts before fallback / failure.
@@ -537,7 +536,7 @@ class TraitInit:
     # This value lives inside the legacy/default trait template container, but the live
     # birth pipeline in the uploaded code uses latent-budget decoding instead of
     # directly reading `TRAITS.INIT` fields.
-    metab: float = 0.05
+    metab: float = 0.005
 
 
 @dataclass
@@ -559,7 +558,7 @@ class TraitClamp:
     #
     # CURRENT STATUS: active runtime knob.
     # TRAITS.hp_max operator knob.
-    hp_max: List[float] = field(default_factory=lambda: [5.0, 100.0])
+    hp_max: List[float] = field(default_factory=lambda: [5.0, 50.0])
     #
     # CURRENT STATUS: active runtime knob.
     # TRAITS.metab operator knob.
@@ -648,7 +647,7 @@ class PhysicsConfig:
     # CURRENT STATUS: active runtime knob.
     # Penalty or damage scale associated with wall interaction.
     # Increase to punish wall contact more harshly.
-    K_WALL_PENALTY: float = 0.5
+    K_WALL_PENALTY: float = 0.60
     #
     # CURRENT STATUS: active runtime knob.
     # Penalty scale associated with ram/collision events.
@@ -897,11 +896,11 @@ class BrainConfig:
     # Each family name should map to an RGB triplet-like list of three integers.
     FAMILY_COLORS: Dict[str, List[int]] = field(
         default_factory=lambda: {
-            "House Nocthar": [98, 84, 116],
-            "House Vespera": [90, 78, 124],
-            "House Umbrael": [70, 96, 112],
-            "House Mourndveil": [120, 82, 90],
-            "House Somnyr": [88, 98, 132],
+            "House Nocthar": [84, 138, 214],
+            "House Vespera": [84, 160, 112],
+            "House Umbrael": [220, 184, 76],
+            "House Mourndveil": [208, 102, 102],
+            "House Somnyr": [168, 112, 208],
         }
     )
 
@@ -1103,7 +1102,7 @@ class EvolutionConfig:
     # CURRENT STATUS: active runtime knob.
     # Standard deviation for ordinary latent trait-logit mutations.
     # Higher values produce more aggressive trait drift.
-    TRAIT_LOGIT_MUTATION_SIGMA: float = 0.12
+    TRAIT_LOGIT_MUTATION_SIGMA: float = 0.012
     #
     # CURRENT STATUS: active runtime knob.
     # Standard deviation for ordinary budget mutations.
@@ -1192,6 +1191,11 @@ class ViewerConfig:
     # Whether the viewer should display the bloodline legend by default.
     # This affects UI density, not simulation state.
     SHOW_BLOODLINE_LEGEND: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether HP-based bloodline color modulation is active in the viewer.
+    # When disabled, rendered agents stay on their clean base family color across all HP ratios.
+    BLOODLINE_LOW_HP_COLOR_MODULATION_ENABLED: bool = True
     #
     # CURRENT STATUS: active runtime knob.
     # How strongly low-HP agents are shaded within bloodline coloring.
@@ -1698,6 +1702,11 @@ class CatastropheConfig:
     # Supported modes are `"off"`, `"manual_only"`, `"auto_dynamic"`, and `"auto_static"`.
     # This determines how a fresh run begins.
     DEFAULT_MODE: str = "auto_dynamic"  # off | manual_only | auto_dynamic | auto_static
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether a fresh run starts with the auto scheduler armed whenever the active mode is an auto mode.
+    # This does not change the selected mode; it controls whether scheduler-driven starts are live at boot.
+    DEFAULT_SCHEDULER_ARMED: bool = True
     #
     # CURRENT STATUS: active runtime knob.
     # Whether operator-triggered catastrophes are allowed.

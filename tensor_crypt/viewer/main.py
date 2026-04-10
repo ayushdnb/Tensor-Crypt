@@ -1,3 +1,4 @@
+
 """Pygame viewer runtime for Tensor Crypt."""
 
 import pygame
@@ -15,12 +16,16 @@ from .text_cache import TextCache
 class Viewer:
     """Own the interactive render loop and UI state."""
 
+    INITIAL_WINDOW_MIN_WIDTH = 800
+    INITIAL_WINDOW_MIN_HEIGHT = 600
+
     def __init__(self, engine):
         pygame.init()
         pygame.font.init()
 
         self.engine = engine
-        self.Wpix, self.Hpix = max(1024, cfg.VIEW.WINDOW_WIDTH), max(768, cfg.VIEW.WINDOW_HEIGHT)
+        self.Wpix = max(self.INITIAL_WINDOW_MIN_WIDTH, int(cfg.VIEW.WINDOW_WIDTH))
+        self.Hpix = max(self.INITIAL_WINDOW_MIN_HEIGHT, int(cfg.VIEW.WINDOW_HEIGHT))
         self.screen = pygame.display.set_mode((self.Wpix, self.Hpix), pygame.RESIZABLE)
         pygame.display.set_caption("Tensor Crypt")
 
@@ -45,6 +50,8 @@ class Viewer:
 
         self.show_catastrophe_panel = cfg.VIEW.SHOW_CATASTROPHE_PANEL
         self.show_catastrophe_overlay = bool(cfg.VIEW.SHOW_CATASTROPHE_OVERLAY and cfg.CATASTROPHE.VIEWER_OVERLAY_ENABLED)
+        self.is_fullscreen = False
+        self._windowed_size = (self.Wpix, self.Hpix)
 
         self.selected_slot_id = None
         self.selected_hzone_id = None
@@ -56,6 +63,67 @@ class Viewer:
         self.hud_panel = HudPanel(self)
         self.side_panel = SidePanel(self)
         self.input_handler = InputHandler(self)
+
+    def _refresh_view_geometry(self, *, refit_world: bool) -> None:
+        wrect = self.layout.world_rect()
+        self.cam.update_screen_size(wrect.width, wrect.height)
+        if refit_world:
+            self.cam.fit_to_world()
+        else:
+            self.cam._clamp_offsets()
+        self.world_renderer.static_surf = None
+        if self._last_state_data is not None:
+            self.side_panel.clamp_scroll_offset(self._last_state_data)
+
+    def _sync_surface_size(self, width: int, height: int, *, refit_world: bool, remember_windowed: bool) -> None:
+        self.Wpix = max(1, int(width))
+        self.Hpix = max(1, int(height))
+        if remember_windowed and not self.is_fullscreen:
+            self._windowed_size = (self.Wpix, self.Hpix)
+        self._refresh_view_geometry(refit_world=refit_world)
+
+    def handle_window_resize(self, width: int, height: int) -> None:
+        """
+        Update viewer geometry after a resizable-window event.
+
+        In pygame 2, the display surface is already resized for VIDEORESIZE, so
+        this method intentionally avoids calling set_mode() again.
+        """
+        self.screen = pygame.display.get_surface() or self.screen
+        self._sync_surface_size(width, height, refit_world=False, remember_windowed=True)
+
+    def resize_window_mode(self, width: int, height: int) -> None:
+        self.screen = pygame.display.set_mode((max(1, int(width)), max(1, int(height))), pygame.RESIZABLE)
+        width, height = self.screen.get_size()
+        self._sync_surface_size(width, height, refit_world=False, remember_windowed=True)
+
+    def _fullscreen_size(self) -> tuple[int, int]:
+        get_desktop_sizes = getattr(pygame.display, "get_desktop_sizes", None)
+        if callable(get_desktop_sizes):
+            sizes = get_desktop_sizes()
+            if sizes:
+                width, height = sizes[0]
+                if width > 0 and height > 0:
+                    return int(width), int(height)
+
+        info = pygame.display.Info()
+        width = getattr(info, "current_w", 0) or self.Wpix
+        height = getattr(info, "current_h", 0) or self.Hpix
+        return max(1, int(width)), max(1, int(height))
+
+    def toggle_fullscreen(self) -> None:
+        if self.is_fullscreen:
+            self.is_fullscreen = False
+            self.screen = pygame.display.set_mode(self._windowed_size, pygame.RESIZABLE)
+            width, height = self.screen.get_size()
+            self._sync_surface_size(width, height, refit_world=False, remember_windowed=False)
+            return
+
+        self._windowed_size = (self.Wpix, self.Hpix)
+        self.is_fullscreen = True
+        self.screen = pygame.display.set_mode(self._fullscreen_size(), pygame.FULLSCREEN)
+        width, height = self.screen.get_size()
+        self._sync_surface_size(width, height, refit_world=False, remember_windowed=False)
 
     def _prepare_state_data(self):
         with torch.no_grad():
@@ -109,6 +177,8 @@ class Viewer:
 
             state_data = self._prepare_state_data()
             self._last_state_data = state_data
+            self.side_panel.clamp_scroll_offset(state_data)
+
             visual_version = state_data["catastrophe_state"].get("visual_state_version", 0)
             if visual_version != self._last_catastrophe_visual_version:
                 self.world_renderer.static_surf = None

@@ -58,7 +58,7 @@ def test_viewer_state_data_has_family_alive_counts_and_params(runtime_builder):
     assert "Gen:" in joined
 
 
-def test_input_fit_mousewheel_and_resize_refit(runtime_builder, monkeypatch):
+def test_input_fit_mousewheel_and_resize_preserves_zoom(runtime_builder, monkeypatch):
     runtime = runtime_builder(seed=602, width=16, height=16, agents=6, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
     viewer = runtime.viewer
 
@@ -85,13 +85,15 @@ def test_input_fit_mousewheel_and_resize_refit(runtime_builder, monkeypatch):
     viewer.input_handler.handle()
     assert viewer.cam.cell_px <= before_zoom_out
 
+    before_resize_zoom = viewer.cam.cell_px
     pygame.event.post(pygame.event.Event(pygame.VIDEORESIZE, {"w": 640, "h": 480}))
     viewer.input_handler.handle()
     world_rect = viewer.layout.world_rect()
-    assert viewer.Wpix == 1024
-    assert viewer.Hpix == 768
+    assert viewer.Wpix == 640
+    assert viewer.Hpix == 480
     assert viewer.cam.screen_width == world_rect.width
     assert viewer.cam.screen_height == world_rect.height
+    assert viewer.cam.cell_px == before_resize_zoom
 
 
 def test_selection_prefers_agent_over_zone_with_proximity_pick(runtime_builder, monkeypatch):
@@ -191,6 +193,7 @@ def test_side_panel_controls_and_legend_lines(runtime_builder, monkeypatch):
     viewer.side_panel.draw(surface, state_data)
 
     assert "Fit world: F" in captured
+    assert "Fullscreen: Alt+Enter" in captured
     assert "Quit: ESC" in captured
 
     for family_id in cfg.BRAIN.FAMILY_ORDER:
@@ -269,6 +272,41 @@ def test_hotkeys_toggle_overlays_speed_and_catastrophe_controls(runtime_builder)
     assert runtime.engine.catastrophes.auto_enabled != auto_before
 
 
+
+def test_alt_enter_toggles_fullscreen(runtime_builder, monkeypatch):
+    runtime = runtime_builder(seed=6061, width=16, height=16, agents=6, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
+
+    calls = []
+
+    def fake_set_mode(size, flags=0):
+        calls.append((tuple(size), flags))
+        return pygame.Surface(size)
+
+    monkeypatch.setattr(pygame.display, "set_mode", fake_set_mode)
+    monkeypatch.setattr(pygame.display, "get_desktop_sizes", lambda: [(1600, 900)])
+
+    start_size = (viewer.Wpix, viewer.Hpix)
+
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_RETURN, "mod": pygame.KMOD_ALT}))
+    viewer.input_handler.handle()
+
+    assert viewer.is_fullscreen is True
+    assert (viewer.Wpix, viewer.Hpix) == (1600, 900)
+    assert calls[-1] == ((1600, 900), pygame.FULLSCREEN)
+
+    world_rect = viewer.layout.world_rect()
+    assert viewer.cam.screen_width == world_rect.width
+    assert viewer.cam.screen_height == world_rect.height
+
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_RETURN, "mod": pygame.KMOD_ALT}))
+    viewer.input_handler.handle()
+
+    assert viewer.is_fullscreen is False
+    assert (viewer.Wpix, viewer.Hpix) == start_size
+    assert calls[-1] == (start_size, pygame.RESIZABLE)
+
+
 def test_viewer_hotkeys_toggle_reproduction_overlay_doctrines(runtime_builder):
     runtime = runtime_builder(seed=607, width=16, height=16, agents=6, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
     viewer = runtime.viewer
@@ -320,3 +358,13 @@ def test_prepare_state_data_exposes_overlay_status(runtime_builder):
     assert "respawn_overlay_state" in state_data
     assert "doctrines" in state_data["respawn_overlay_state"]
     assert {"crowding", "cooldown", "local_parent"}.issubset(state_data["respawn_overlay_state"]["doctrines"].keys())
+
+
+def test_text_cache_lazily_builds_unconfigured_font_sizes(runtime_builder):
+    runtime = runtime_builder(seed=610, width=14, height=14, agents=6, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    cache = runtime.viewer.text_cache
+
+    rendered = cache.render("runtime override differs from config default", 11, (255, 255, 255))
+
+    assert rendered.get_width() > 0
+    assert 11 in cache.fonts

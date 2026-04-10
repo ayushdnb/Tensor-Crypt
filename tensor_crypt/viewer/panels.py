@@ -1,3 +1,4 @@
+
 """Viewer panels and world rendering helpers."""
 
 import math
@@ -50,6 +51,9 @@ class WorldRenderer:
 
         if self.static_surf is None or self.static_surf.get_size() != wrect.size:
             self._build_static_cache(wrect)
+
+        previous_clip = surf.get_clip()
+        surf.set_clip(wrect)
         surf.blit(self.static_surf, wrect.topleft)
 
         self._draw_agents(surf, wrect, c, state_data)
@@ -62,6 +66,7 @@ class WorldRenderer:
             self._draw_grid_lines(surf, wrect, c)
         if self.viewer.show_catastrophe_overlay:
             self._draw_catastrophe_overlay(surf, wrect, state_data)
+        surf.set_clip(previous_clip)
         pygame.draw.rect(surf, COLORS["border"], wrect, 2)
 
     def _draw_agents(self, surf, wrect, c, state_data):
@@ -192,14 +197,86 @@ class HudPanel:
         self.viewer = viewer
         self.text = viewer.text_cache
 
+    def _draw_family_counts(self, surf, x, y, max_right, size, state_data):
+        line_height = max(14, self.text.line_height(size))
+        cursor_x = x
+        family_counts = state_data.get("family_alive_counts", {})
+        for family_id in cfg.BRAIN.FAMILY_ORDER:
+            count = family_counts.get(family_id, 0)
+            color = get_bloodline_base_color(family_id)
+            count_text = str(count)
+            count_width, _ = self.text.measure(count_text, size)
+            block_width = 10 + 4 + count_width + 16
+            if cursor_x + block_width > max_right and cursor_x != x:
+                cursor_x = x
+                y += line_height
+            pygame.draw.rect(surf, color, (cursor_x, y + 2, 10, 10))
+            cursor_x += 14
+            surf.blit(self.text.render(count_text, size, COLORS["text_dim"]), (cursor_x, y))
+            cursor_x += count_width + 16
+        return y + line_height
+
+    def _compose_catastrophe_line(self, catastrophe_state: dict) -> str:
+        mode = catastrophe_state.get("mode", "off")
+        active_names = catastrophe_state.get("active_names", [])
+        next_tick = catastrophe_state.get("next_auto_tick", None)
+        global_enabled = bool(catastrophe_state.get("global_enabled", True))
+        scheduler_armed = bool(catastrophe_state.get("scheduler_armed", False))
+        scheduler_paused = bool(catastrophe_state.get("scheduler_paused", False))
+        active_count = int(catastrophe_state.get("active_count", 0))
+
+        if not global_enabled:
+            scheduler_label = "disabled"
+        elif mode == "off":
+            scheduler_label = "off"
+        elif mode == "manual_only":
+            scheduler_label = "manual-only"
+        elif scheduler_armed:
+            scheduler_label = "armed/paused" if scheduler_paused else "armed/running"
+        else:
+            scheduler_label = "disarmed"
+
+        line = f"Cata: {mode} | {scheduler_label} | active={active_count}"
+        if next_tick is not None and next_tick >= 0:
+            line += f" | next={next_tick}"
+        if active_names:
+            line += " | " + ", ".join(active_names[:2])
+        return line
+
+    def _compose_overlay_line(self, overlay_state: dict) -> str:
+        doctrines = overlay_state.get("doctrines", {})
+
+        def _fmt(key: str) -> str:
+            item = doctrines.get(key, {})
+            enabled = bool(item.get("effective_enabled", False))
+            marker = "*" if (
+                cfg.RESPAWN.OVERLAYS.VIEWER.SHOW_OVERRIDE_MARKERS
+                and item.get("override_differs", False)
+            ) else ""
+            label = item.get("short_name", key)
+            return f"{label}:{'ON' if enabled else 'OFF'}{marker}"
+
+        repro_gate = "EN" if overlay_state.get("reproduction_enabled", True) else "DIS"
+        doctrine_line = (
+            f"Repro:{repro_gate} | "
+            f"{_fmt('crowding')} | "
+            f"{_fmt('cooldown')} | "
+            f"{_fmt('local_parent')}"
+        )
+        if overlay_state.get("below_floor_active", False):
+            doctrine_line += " | floor-softened"
+        return doctrine_line
+
     def draw(self, surf, state_data):
         hrect = self.viewer.layout.hud_rect()
         surf.fill(COLORS["hud_bg"], hrect)
         pygame.draw.rect(surf, COLORS["border"], hrect, 2)
 
-        pad = 12
-        x = hrect.x + pad
-        y = hrect.y + 8
+        content = self.viewer.layout.content_rect(hrect)
+        title_size = 16 if self.viewer.layout.is_dense() else 18
+        badge_size = 14 if self.viewer.layout.is_dense() else 16
+        text_size = 11 if self.viewer.layout.is_dense() else 12
+        body_size = 12 if self.viewer.layout.is_dense() else 14
 
         if self.viewer.selected_hzone_id is not None:
             pause_str = "[ H-ZONE EDIT ]"
@@ -208,179 +285,275 @@ class HudPanel:
             pause_str = "[ PAUSED ]" if self.viewer.paused else f"[ {self.viewer.speed_multiplier}x ]"
             pause_color = COLORS["pause_text"] if self.viewer.paused else COLORS["text"]
 
-        surf.blit(self.text.render(f"Tick {self.viewer.engine.tick}", 18, COLORS["text"]), (x, y))
-        surf.blit(self.text.render(pause_str, 16, pause_color), (x + 150, y + 2))
+        previous_clip = surf.get_clip()
+        surf.set_clip(content)
 
-        y += 24
+        x = content.x
+        y = content.y
+
+        tick_surface = self.text.render(f"Tick {self.viewer.engine.tick}", title_size, COLORS["text"])
+        pause_surface = self.text.render(pause_str, badge_size, pause_color)
+        surf.blit(tick_surface, (x, y))
+        pause_x = content.right - pause_surface.get_width()
+        min_pause_x = x + tick_surface.get_width() + 16
+        pause_x = max(min_pause_x, pause_x)
+        surf.blit(pause_surface, (pause_x, y + 1))
+
+        y += max(tick_surface.get_height(), pause_surface.get_height()) + 6
         alive_str = f"Alive: {state_data['num_alive']} / {self.viewer.engine.registry.max_agents}"
-        surf.blit(self.text.render(alive_str, 14, COLORS["text_dim"]), (x, y))
+        surf.blit(self.text.render(alive_str, body_size, COLORS["text_dim"]), (x, y))
+        y += self.text.line_height(body_size)
+        y = self._draw_family_counts(surf, x, y, content.right, text_size, state_data)
 
-        family_counts = state_data.get("family_alive_counts", {})
-        bx = x + 220
-        for family_id in cfg.BRAIN.FAMILY_ORDER:
-            count = family_counts.get(family_id, 0)
-            color = get_bloodline_base_color(family_id)
-            pygame.draw.rect(surf, color, (bx, y + 2, 10, 10))
-            bx += 14
-            surf.blit(self.text.render(str(count), 13, COLORS["text_dim"]), (bx, y))
-            bx += 28
-
-        y += 22
+        wrap_width = max(1, content.width)
         catastrophe_state = state_data.get("catastrophe_state", {})
         if cfg.VIEW.SHOW_CATASTROPHE_STATUS_IN_HUD:
-            mode = catastrophe_state.get("mode", "off")
-            active_names = catastrophe_state.get("active_names", [])
-            next_tick = catastrophe_state.get("next_auto_tick", None)
-            line = f"Cata: {mode}"
-            if active_names:
-                line += " | " + ", ".join(active_names[:2])
-            if next_tick is not None and next_tick >= 0:
-                line += f" | next={next_tick}"
-            surf.blit(self.text.render(line, 12, COLORS["text_warn"]), (x, y))
+            for line in self.text.wrap_lines(self._compose_catastrophe_line(catastrophe_state), text_size, wrap_width):
+                surf.blit(self.text.render(line, text_size, COLORS["text_warn"]), (x, y))
+                y += self.text.line_height(text_size)
 
         overlay_state = state_data.get("respawn_overlay_state", {})
         if cfg.RESPAWN.OVERLAYS.VIEWER.SHOW_STATUS_IN_HUD:
-            doctrines = overlay_state.get("doctrines", {})
+            for line in self.text.wrap_lines(self._compose_overlay_line(overlay_state), text_size, wrap_width):
+                surf.blit(self.text.render(line, text_size, COLORS["text_dim"]), (x, y))
+                y += self.text.line_height(text_size)
 
-            def _fmt(key: str) -> str:
-                item = doctrines.get(key, {})
-                enabled = bool(item.get("effective_enabled", False))
-                marker = "*" if (
-                    cfg.RESPAWN.OVERLAYS.VIEWER.SHOW_OVERRIDE_MARKERS
-                    and item.get("override_differs", False)
-                ) else ""
-                label = item.get("short_name", key)
-                return f"{label}:{'ON' if enabled else 'OFF'}{marker}"
-
-            y += 16
-            repro_gate = "EN" if overlay_state.get("reproduction_enabled", True) else "DIS"
-            doctrine_line = (
-                f"Repro:{repro_gate} | "
-                f"{_fmt('crowding')} | "
-                f"{_fmt('cooldown')} | "
-                f"{_fmt('local_parent')}"
-            )
-            if overlay_state.get("below_floor_active", False):
-                doctrine_line += " | floor-softened"
-            surf.blit(self.text.render(doctrine_line, 12, COLORS["text_dim"]), (x, y))
+        surf.set_clip(previous_clip)
 
 
 class SidePanel:
+    CONTROLS = [
+        "Pan: WASD / Arrows",
+        "Zoom: Mouse Wheel",
+        "Fit world: F",
+        "Fullscreen: Alt+Enter",
+        "Pause: SPACE",
+        "Speed: +/- (no zone sel.)",
+        "Step (Paused): .",
+        "Quit: ESC",
+        "---",
+        "Edit H-Zone Rate: +/-",
+        "Rays: R  HP Bars: B",
+        "H-Zones: H  Grid: G",
+        "---",
+        "Ashen Press: Shift+1",
+        "Widow Interval: Shift+2",
+        "Bloodhold Radius: Shift+3",
+        "Clear Doctrine Overrides: Shift+0",
+        "---",
+        "Cata F1..F12: manual trigger",
+        "Clear Active: C  Mode: Y",
+        "Sched Arm: U  Panel: I  Sched Pause: O",
+    ]
+
     def __init__(self, viewer):
         self.viewer = viewer
         self.engine = viewer.engine
         self.registry = viewer.engine.registry
         self.text = viewer.text_cache
         self.line_height = 19
+        self.scroll_offset = 0
 
-    def draw(self, surf, state_data):
-        srect = self.viewer.layout.side_rect()
-        surf.fill(COLORS["side_bg"], srect)
-        pygame.draw.rect(surf, COLORS["border"], srect, 2)
+    def _metrics(self) -> dict:
+        dense = self.viewer.layout.is_dense()
+        return {
+            "header_size": 17 if dense else 18,
+            "section_header_size": 13 if dense else 14,
+            "body_size": 11 if dense else 12,
+            "hint_size": 11 if dense else 13,
+            "control_header_size": 15 if dense else 16,
+            "control_size": 11 if dense else 12,
+            "line_gap": 2 if dense else 3,
+            "section_gap": 8 if dense else 10,
+            "controls_step": 14 if dense else 16,
+            "controls_separator_gap": 4,
+            "padding": self.viewer.layout.panel_padding(),
+        }
 
-        pad = 12
-        y = srect.y + 10
-        x = srect.x + pad
+    def _blit_wrapped(self, surf, text, size, color, x, y, max_width, *, line_gap: int) -> int:
+        wrapped = self.text.wrap_lines(text, size, max_width)
+        line_height = self.text.line_height(size)
+        for line in wrapped:
+            if surf is not None:
+                surf.blit(self.text.render(line, size, color), (x, y))
+            y += line_height + line_gap
+        return y
 
-        surf.blit(self.text.render("Inspector", 18, COLORS["text_header"]), (x, y))
-        y += 26
+    def _draw_header_line(self, surf, text, size, color, x, y) -> int:
+        if surf is not None:
+            surf.blit(self.text.render(text, size, color), (x, y))
+        return y + self.text.line_height(size)
 
+    def _controls_height(self, metrics: dict) -> int:
+        height = self.text.line_height(metrics["control_header_size"]) + 8
+        for line in self.CONTROLS:
+            if line == "---":
+                height += metrics["controls_separator_gap"]
+            else:
+                height += metrics["controls_step"]
+        return height + metrics["padding"]
+
+    def _content_rect(self, srect: pygame.Rect, metrics: dict) -> pygame.Rect:
+        header_top = srect.y + metrics["padding"] + self.text.line_height(metrics["header_size"]) + 10
+        footer_height = self._controls_height(metrics)
+        footer_top = max(header_top + 24, srect.bottom - footer_height)
+        return pygame.Rect(
+            srect.x + metrics["padding"],
+            header_top,
+            max(1, srect.width - (metrics["padding"] * 2)),
+            max(1, footer_top - header_top - 8),
+        )
+
+    def _render_controls(self, surf, srect: pygame.Rect, metrics: dict) -> None:
+        x = srect.x + metrics["padding"]
+        y = srect.bottom - self._controls_height(metrics) + 4
+        pygame.draw.line(surf, COLORS["border"], (srect.x, y - 6), (srect.right, y - 6), 1)
+        surf.blit(self.text.render("Controls", metrics["control_header_size"], COLORS["text_header"]), (x, y))
+        y += self.text.line_height(metrics["control_header_size"]) + 4
+
+        for line in self.CONTROLS:
+            if line == "---":
+                y += metrics["controls_separator_gap"]
+                continue
+            surf.blit(self.text.render(line, metrics["control_size"], COLORS["text_dim"]), (x, y))
+            y += metrics["controls_step"]
+
+    def _compose_scroll_content(self, surf, x, y, max_width, state_data, metrics: dict) -> int:
         slot_id = self.viewer.selected_slot_id
         hzone_id = self.viewer.selected_hzone_id
 
         if slot_id is not None:
             if slot_id not in state_data["agent_map"]:
-                surf.blit(self.text.render(f"UID {self.viewer.last_selected_uid} (Dead)", 13, COLORS["text_warn"]), (x, y))
-                y += self.line_height
+                y = self._blit_wrapped(
+                    surf,
+                    f"UID {self.viewer.last_selected_uid} (Dead)",
+                    metrics["hint_size"],
+                    COLORS["text_warn"],
+                    x,
+                    y,
+                    max_width,
+                    line_gap=metrics["line_gap"],
+                )
             else:
-                y = self._draw_agent_details(surf, x, y, slot_id)
+                y = self._draw_agent_details(surf, x, y, max_width, slot_id, metrics)
         elif hzone_id is not None:
-            y = self._draw_hzone_details(surf, x, y, hzone_id)
+            y = self._draw_hzone_details(surf, x, y, max_width, hzone_id, metrics)
         else:
-            surf.blit(self.text.render("Click an agent or H-Zone.", 13, COLORS["text_dim"]), (x, y))
-            y += self.line_height
+            y = self._blit_wrapped(
+                surf,
+                "Click an agent or H-Zone.",
+                metrics["hint_size"],
+                COLORS["text_dim"],
+                x,
+                y,
+                max_width,
+                line_gap=metrics["line_gap"],
+            )
 
-        y += 6
-        y = self._draw_bloodline_legend(surf, x, y, state_data)
+        y += metrics["section_gap"] - 2
+        y = self._draw_bloodline_legend(surf, x, y, max_width, state_data, metrics)
         if cfg.RESPAWN.OVERLAYS.VIEWER.SHOW_STATUS_IN_PANEL:
-            y = self._draw_reproduction_overlay_block(surf, x, y, state_data.get("respawn_overlay_state", {}))
+            y = self._draw_reproduction_overlay_block(surf, x, y, max_width, state_data.get("respawn_overlay_state", {}), metrics)
         if self.viewer.show_catastrophe_panel:
-            y = self._draw_catastrophe_block(surf, x, y, state_data.get("catastrophe_state", {}))
+            y = self._draw_catastrophe_block(surf, x, y, max_width, state_data.get("catastrophe_state", {}), metrics)
+        return y
 
-        y = max(y + 8, srect.bottom - 280)
-        pygame.draw.line(surf, COLORS["border"], (srect.x, y - 6), (srect.right, y - 6), 1)
-        surf.blit(self.text.render("Controls", 16, COLORS["text_header"]), (x, y))
-        y += 22
+    def _content_height(self, state_data) -> int:
+        srect = self.viewer.layout.side_rect()
+        metrics = self._metrics()
+        content_rect = self._content_rect(srect, metrics)
+        y_end = self._compose_scroll_content(None, content_rect.x, content_rect.y, content_rect.width, state_data, metrics)
+        return max(0, int(y_end - content_rect.y))
 
-        controls = [
-            "Pan: WASD / Arrows",
-            "Zoom: Mouse Wheel",
-            "Fit world: F",
-            "Pause: SPACE",
-            "Speed: +/- (no zone sel.)",
-            "Step (Paused): .",
-            "Quit: ESC",
-            "---",
-            "Edit H-Zone Rate: +/-",
-            "Rays: R  HP Bars: B",
-            "H-Zones: H  Grid: G",
-            "---",
-            "Ashen Press: Shift+1",
-            "Widow Interval: Shift+2",
-            "Bloodhold Radius: Shift+3",
-            "Clear Doctrine Overrides: Shift+0",
-            "---",
-            "Cata F1..F12: trigger",
-            "Clear: C  Mode: Y",
-            "Auto: U  Panel: I  Pause: O",
-        ]
-        for line in controls:
-            if line == "---":
-                y += 4
-                continue
-            surf.blit(self.text.render(line, 12, COLORS["text_dim"]), (x, y))
-            y += 16
+    def clamp_scroll_offset(self, state_data) -> None:
+        if state_data is None:
+            self.scroll_offset = 0
+            return
+        srect = self.viewer.layout.side_rect()
+        metrics = self._metrics()
+        content_rect = self._content_rect(srect, metrics)
+        max_scroll = max(0, self._content_height(state_data) - content_rect.height)
+        self.scroll_offset = max(0, min(self.scroll_offset, max_scroll))
 
-    def _draw_bloodline_legend(self, surf, x, y, state_data):
+    def scroll_by(self, direction_steps: int, state_data) -> None:
+        metrics = self._metrics()
+        step_px = max(12, self.text.line_height(metrics["body_size"]))
+        self.scroll_offset += int(direction_steps) * step_px
+        self.clamp_scroll_offset(state_data)
+
+    def draw(self, surf, state_data):
+        srect = self.viewer.layout.side_rect()
+        metrics = self._metrics()
+
+        surf.fill(COLORS["side_bg"], srect)
+        pygame.draw.rect(surf, COLORS["border"], srect, 2)
+
+        header_x = srect.x + metrics["padding"]
+        header_y = srect.y + metrics["padding"]
+        surf.blit(self.text.render("Inspector", metrics["header_size"], COLORS["text_header"]), (header_x, header_y))
+
+        content_rect = self._content_rect(srect, metrics)
+        self.clamp_scroll_offset(state_data)
+
+        previous_clip = surf.get_clip()
+        surf.set_clip(content_rect)
+        y = content_rect.y - self.scroll_offset
+        y = self._compose_scroll_content(surf, content_rect.x, y, content_rect.width, state_data, metrics)
+        surf.set_clip(previous_clip)
+
+        total_height = self._content_height(state_data)
+        max_scroll = max(0, total_height - content_rect.height)
+        if max_scroll > 0:
+            track = pygame.Rect(srect.right - 8, content_rect.y, 4, content_rect.height)
+            thumb_height = max(24, int((content_rect.height / max(total_height, 1)) * content_rect.height))
+            thumb_travel = max(0, track.height - thumb_height)
+            thumb_y = track.y + int((self.scroll_offset / max(max_scroll, 1)) * thumb_travel)
+            pygame.draw.rect(surf, COLORS["bar_bg"], track)
+            pygame.draw.rect(surf, COLORS["border"], (track.x, thumb_y, track.width, thumb_height))
+
+        self._render_controls(surf, srect, metrics)
+
+    def _draw_bloodline_legend(self, surf, x, y, max_width, state_data, metrics: dict):
         if not cfg.VIEW.SHOW_BLOODLINE_LEGEND:
             return y
 
         family_counts = state_data.get("family_alive_counts", {})
         total = max(1, sum(family_counts.values()))
+        y = self._draw_header_line(surf, "Bloodlines", metrics["section_header_size"], COLORS["text_header"], x, y)
+        y += 2
 
-        surf.blit(self.text.render("Bloodlines", 14, COLORS["text_header"]), (x, y))
-        y += 18
-
+        bar_width = 60 if max_width >= 260 else 0
+        bar_x = x + max(0, max_width - bar_width)
         for family_id in cfg.BRAIN.FAMILY_ORDER:
             color = get_bloodline_base_color(family_id)
             count = family_counts.get(family_id, 0)
-            pygame.draw.rect(surf, color, (x, y + 2, 10, 10))
-            pygame.draw.rect(surf, COLORS["border"], (x, y + 2, 10, 10), 1)
-            label = f"{family_id}  {count}"
-            surf.blit(self.text.render(label, 12, COLORS["text_dim"]), (x + 16, y))
-            bar_x = x + 220
-            bar_w = 60
-            frac = count / total
-            pygame.draw.rect(surf, COLORS["bar_bg"], (bar_x, y + 3, bar_w, 8))
-            pygame.draw.rect(surf, color, (bar_x, y + 3, int(bar_w * frac), 8))
-            y += 17
+            if surf is not None:
+                pygame.draw.rect(surf, color, (x, y + 2, 10, 10))
+                pygame.draw.rect(surf, COLORS["border"], (x, y + 2, 10, 10), 1)
+                surf.blit(self.text.render(f"{family_id}  {count}", metrics["body_size"], COLORS["text_dim"]), (x + 16, y))
+                if bar_width:
+                    frac = count / total
+                    pygame.draw.rect(surf, COLORS["bar_bg"], (bar_x, y + 3, bar_width, 8))
+                    pygame.draw.rect(surf, color, (bar_x, y + 3, int(bar_width * frac), 8))
+            y += self.text.line_height(metrics["body_size"]) + 1
 
-        return y + 4
+        return y + metrics["section_gap"]
 
-    def _draw_reproduction_overlay_block(self, surf, x, y, overlay_state: dict):
-        surf.blit(self.text.render("Reproduction doctrines", 14, COLORS["text_header"]), (x, y))
-        y += 18
+    def _draw_reproduction_overlay_block(self, surf, x, y, max_width, overlay_state: dict, metrics: dict):
+        y = self._draw_header_line(surf, "Reproduction doctrines", metrics["section_header_size"], COLORS["text_header"], x, y)
+        y += 2
 
-        surf.blit(
-            self.text.render(
-                f"Gate: {'enabled' if overlay_state.get('reproduction_enabled', True) else 'disabled'}  "
-                f"Below floor: {overlay_state.get('below_floor_active', False)}",
-                12,
-                COLORS["text_dim"],
-            ),
-            (x, y),
+        y = self._blit_wrapped(
+            surf,
+            f"Gate: {'enabled' if overlay_state.get('reproduction_enabled', True) else 'disabled'}  "
+            f"Below floor: {overlay_state.get('below_floor_active', False)}",
+            metrics["body_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
         )
-        y += 16
 
         doctrines = overlay_state.get("doctrines", {})
         for key in ("crowding", "cooldown", "local_parent"):
@@ -393,60 +566,159 @@ class SidePanel:
             policy = item.get("active_policy", "-")
             label = item.get("short_name", key)
             line = f"{label}: {'ON' if enabled else 'OFF'}{marker} | policy={policy}"
-            surf.blit(self.text.render(line, 12, COLORS["text_dim"]), (x, y))
-            y += 16
+            y = self._blit_wrapped(
+                surf,
+                line,
+                metrics["body_size"],
+                COLORS["text_dim"],
+                x,
+                y,
+                max_width,
+                line_gap=metrics["line_gap"],
+            )
 
         if cfg.RESPAWN.OVERLAYS.VIEWER.SHOW_OVERRIDE_MARKERS:
-            surf.blit(self.text.render("* runtime override differs from config default", 11, COLORS["text_warn"]), (x, y))
-            y += 16
-        return y + 4
+            y = self._blit_wrapped(
+                surf,
+                "* runtime override differs from config default",
+                max(10, metrics["body_size"] - 1),
+                COLORS["text_warn"],
+                x,
+                y,
+                max_width,
+                line_gap=metrics["line_gap"],
+            )
+        return y + metrics["section_gap"]
 
-    def _draw_catastrophe_block(self, surf, x, y, catastrophe_state: dict):
-        surf.blit(self.text.render("Catastrophes", 14, COLORS["text_header"]), (x, y))
-        y += 18
-        surf.blit(self.text.render(f"Mode: {catastrophe_state.get('mode', 'off')}", 12, COLORS["text_dim"]), (x, y))
-        y += 16
-        paused = catastrophe_state.get("scheduler_paused", False)
+    def _draw_catastrophe_block(self, surf, x, y, max_width, catastrophe_state: dict, metrics: dict):
+        y = self._draw_header_line(surf, "Catastrophes", metrics["section_header_size"], COLORS["text_header"], x, y)
+        y += 2
+
+        mode = catastrophe_state.get("mode", "off")
+        global_enabled = bool(catastrophe_state.get("global_enabled", True))
+        scheduler_armed = bool(catastrophe_state.get("scheduler_armed", False))
+        scheduler_paused = bool(catastrophe_state.get("scheduler_paused", False))
         next_tick = catastrophe_state.get("next_auto_tick", None)
-        surf.blit(self.text.render(f"Paused: {paused}  Next: {next_tick}", 12, COLORS["text_dim"]), (x, y))
-        y += 16
+        manual_trigger_enabled = bool(catastrophe_state.get("manual_trigger_enabled", False))
+        manual_clear_enabled = bool(catastrophe_state.get("manual_clear_enabled", False))
+
+        if not global_enabled:
+            scheduler_line = "Scheduler: globally disabled"
+        elif mode in {"off", "manual_only"}:
+            scheduler_line = "Scheduler: n/a for current mode"
+        elif scheduler_armed:
+            scheduler_state = "paused" if scheduler_paused else "running"
+            scheduler_line = f"Scheduler: armed | {scheduler_state}"
+        else:
+            scheduler_line = "Scheduler: disarmed"
+
+        y = self._blit_wrapped(
+            surf,
+            f"Mode: {mode}",
+            metrics["body_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
+        y = self._blit_wrapped(
+            surf,
+            scheduler_line,
+            metrics["body_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
+        y = self._blit_wrapped(
+            surf,
+            f"Manual trigger: {'ON' if manual_trigger_enabled else 'OFF'}  Clear: {'ON' if manual_clear_enabled else 'OFF'}",
+            metrics["body_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
+        y = self._blit_wrapped(
+            surf,
+            f"Next auto tick: {next_tick}",
+            metrics["body_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
 
         active_names = catastrophe_state.get("active_names", [])
         if active_names:
-            surf.blit(self.text.render("Active:", 12, COLORS["text_warn"]), (x, y))
-            y += 16
+            y = self._draw_header_line(surf, "Active:", metrics["body_size"], COLORS["text_warn"], x, y)
             for detail in catastrophe_state.get("active_details", [])[:3]:
-                surf.blit(
-                    self.text.render(
-                        f"  {detail['display_name']} ({detail['remaining_ticks']}t)",
-                        12,
-                        COLORS["text_harm"],
-                    ),
-                    (x, y),
+                y = self._blit_wrapped(
+                    surf,
+                    f"{detail['display_name']} ({detail['remaining_ticks']}t)",
+                    metrics["body_size"],
+                    COLORS["text_harm"],
+                    x + 8,
+                    y,
+                    max(1, max_width - 8),
+                    line_gap=metrics["line_gap"],
                 )
-                y += 15
         else:
-            surf.blit(self.text.render("Active: none", 12, COLORS["text_dim"]), (x, y))
-            y += 16
-        return y + 4
+            y = self._blit_wrapped(
+                surf,
+                "Active: none",
+                metrics["body_size"],
+                COLORS["text_dim"],
+                x,
+                y,
+                max_width,
+                line_gap=metrics["line_gap"],
+            )
+        return y + metrics["section_gap"]
 
-    def _draw_hzone_details(self, surf, x, y, hzone_id):
-        lh = self.line_height
+    def _draw_hzone_details(self, surf, x, y, max_width, hzone_id, metrics: dict):
         zone = self.engine.grid.get_hzone(hzone_id)
 
         if not zone:
-            surf.blit(self.text.render(f"H-Zone {hzone_id} (Error)", 13, COLORS["text_warn"]), (x, y))
-            return y + lh
+            return self._blit_wrapped(
+                surf,
+                f"H-Zone {hzone_id} (Error)",
+                metrics["hint_size"],
+                COLORS["text_warn"],
+                x,
+                y,
+                max_width,
+                line_gap=metrics["line_gap"],
+            )
 
         rate = zone["rate"]
         color = COLORS["text_success"] if rate >= 0 else COLORS["text_harm"]
 
-        surf.blit(self.text.render(f"H-Zone ID: {hzone_id}", 16, color), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Coords: ({zone['x1']}, {zone['y1']}) to ({zone['x2']}, {zone['y2']})", 13, COLORS["text_dim"]), (x, y))
-        y += lh
-        surf.blit(self.text.render(f"Rate: {rate:.2f}", 13, COLORS["text_dim"]), (x, y))
-        y += lh
+        y = self._draw_header_line(surf, f"H-Zone ID: {hzone_id}", metrics["header_size"], color, x, y)
+        y = self._blit_wrapped(
+            surf,
+            f"Coords: ({zone['x1']}, {zone['y1']}) to ({zone['x2']}, {zone['y2']})",
+            metrics["hint_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
+        y = self._blit_wrapped(
+            surf,
+            f"Rate: {rate:.2f}",
+            metrics["hint_size"],
+            COLORS["text_dim"],
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
         return y
 
     def _agent_detail_lines(self, slot_id: int) -> list[tuple[str, tuple[int, int, int]]]:
@@ -501,21 +773,28 @@ class SidePanel:
             lines.append((f"Cata active/survived: {catastrophe_summary['active_count']}/{catastrophe_summary['survived_count']}", COLORS["text_dim"]))
         return lines
 
-    def _draw_agent_details(self, surf, x, y, slot_id):
-        lh = self.line_height
+    def _draw_agent_details(self, surf, x, y, max_width, slot_id, metrics: dict):
         lines = self._agent_detail_lines(slot_id)
 
         self.viewer.last_selected_uid = self.registry.get_uid_for_slot(slot_id)
         hp = self.registry.data[self.registry.HP, slot_id].item()
         hp_max = self.registry.data[self.registry.HP_MAX, slot_id].item()
         hp_ratio = hp / (hp_max + 1e-6)
-        bar_w = self.viewer.layout.side_rect().width - 2 * 12
 
         for line, color in lines:
-            surf.blit(self.text.render(line, 12, color), (x, y))
-            y += lh
+            y = self._blit_wrapped(
+                surf,
+                line,
+                metrics["body_size"],
+                color,
+                x,
+                y,
+                max_width,
+                line_gap=metrics["line_gap"],
+            )
 
-        pygame.draw.rect(surf, COLORS["bar_bg"], (x, y, bar_w, 8))
-        pygame.draw.rect(surf, COLORS["bar_fg_hp"], (x, y, bar_w * hp_ratio, 8))
-        y += 14
-        return y
+        bar_y = y + 1
+        if surf is not None:
+            pygame.draw.rect(surf, COLORS["bar_bg"], (x, bar_y, max_width, 8))
+            pygame.draw.rect(surf, COLORS["bar_fg_hp"], (x, bar_y, int(max_width * hp_ratio), 8))
+        return bar_y + 14

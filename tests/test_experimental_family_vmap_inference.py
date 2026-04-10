@@ -1,8 +1,7 @@
-import builtins
-
 import pytest
 import torch
 
+from tensor_crypt.app import runtime as runtime_module
 from tensor_crypt.app.runtime import validate_runtime_config
 from tensor_crypt.config_bridge import cfg
 from tensor_crypt.learning.ppo import PPO
@@ -60,36 +59,42 @@ def _reference_gae(rewards, values, dones, last_value, last_done):
 
 
 def test_validate_runtime_config_allows_missing_torch_func_when_experimental_path_is_disabled(monkeypatch):
-    real_import = builtins.__import__
+    real_import_module = runtime_module.importlib.import_module
 
-    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+    def fake_import_module(name, package=None):
         if name == "torch.func":
             raise ImportError("torch.func unavailable for test")
-        return real_import(name, globals, locals, fromlist, level)
+        return real_import_module(name, package)
 
     cfg.SIM.DEVICE = "cpu"
     cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = False
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(runtime_module.importlib, "import_module", fake_import_module)
+
+    validate_runtime_config()
+
+def test_validate_runtime_config_allows_cuda_device_check_without_local_torch_shadow(monkeypatch):
+    cfg.SIM.DEVICE = "cuda:0"
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = False
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
     validate_runtime_config()
 
 
 def test_validate_runtime_config_rejects_missing_torch_func_when_experimental_path_is_enabled(monkeypatch):
-    real_import = builtins.__import__
+    real_import_module = runtime_module.importlib.import_module
 
-    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+    def fake_import_module(name, package=None):
         if name == "torch.func":
             raise ImportError("torch.func unavailable for test")
-        return real_import(name, globals, locals, fromlist, level)
+        return real_import_module(name, package)
 
     cfg.SIM.DEVICE = "cpu"
     cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = True
     cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET = 2
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(runtime_module.importlib, "import_module", fake_import_module)
 
     with pytest.raises(ValueError, match="requires torch.func support"):
         validate_runtime_config()
-
 
 @pytest.mark.skipif(not HAS_TORCH_FUNC, reason="torch.func unavailable")
 def test_experimental_family_vmap_forward_matches_loop_for_same_family_bucket(runtime_builder):
@@ -229,4 +234,5 @@ def test_ppo_gae_preallocation_matches_reference():
 
     torch.testing.assert_close(got_returns, ref_returns, rtol=0.0, atol=0.0)
     torch.testing.assert_close(got_advantages, ref_advantages, rtol=0.0, atol=0.0)
+
 

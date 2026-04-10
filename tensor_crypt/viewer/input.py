@@ -1,3 +1,4 @@
+
 """Viewer input routing and interaction semantics."""
 
 from ..config_bridge import cfg
@@ -9,6 +10,11 @@ class InputHandler:
         self.viewer = viewer
         self.cam = viewer.cam
         self.engine = viewer.engine
+
+    @staticmethod
+    def _is_fullscreen_hotkey(ev) -> bool:
+        mods = getattr(ev, "mod", 0)
+        return bool(mods & pygame.KMOD_ALT) and ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER)
 
     def _handle_catastrophe_hotkey(self, ev) -> None:
         if not cfg.CATASTROPHE.VIEWER_CONTROLS_ENABLED:
@@ -34,19 +40,19 @@ class InputHandler:
             return
 
         if ev.key == pygame.K_c:
-            self.engine.catastrophes.manual_clear(self.engine.tick)
+            self.engine.catastrophes.clear_active_catastrophes(self.engine.tick)
             self.viewer.world_renderer.static_surf = None
         elif ev.key == pygame.K_y:
-            self.engine.catastrophes.cycle_mode()
+            self.engine.catastrophes.cycle_mode(self.engine.tick)
         elif ev.key == pygame.K_u:
-            self.engine.catastrophes.toggle_auto_enable()
+            self.engine.catastrophes.toggle_scheduler_armed(self.engine.tick)
         elif ev.key == pygame.K_i:
             self.viewer.show_catastrophe_panel = not self.viewer.show_catastrophe_panel
             self.viewer.show_catastrophe_overlay = bool(
                 self.viewer.show_catastrophe_panel and cfg.CATASTROPHE.VIEWER_OVERLAY_ENABLED
             )
         elif ev.key == pygame.K_o:
-            self.engine.catastrophes.toggle_scheduler_pause()
+            self.engine.catastrophes.toggle_scheduler_pause(self.engine.tick)
 
     def _handle_reproduction_overlay_hotkey(self, ev) -> bool:
         if not cfg.RESPAWN.OVERLAYS.VIEWER.HOTKEYS_ENABLED:
@@ -92,6 +98,14 @@ class InputHandler:
 
         return best_slot
 
+    def _scroll_side_panel(self, direction_steps: int) -> bool:
+        state_data = self.viewer._last_state_data
+        if state_data is None:
+            return False
+        start = self.viewer.side_panel.scroll_offset
+        self.viewer.side_panel.scroll_by(direction_steps, state_data)
+        return self.viewer.side_panel.scroll_offset != start
+
     def handle(self):
         running = True
         advance_tick = False
@@ -108,22 +122,28 @@ class InputHandler:
             self.cam.pan(0, pan_speed)
 
         wrect = self.viewer.layout.world_rect()
+        srect = self.viewer.layout.side_rect()
+        window_resized_event = getattr(pygame, "WINDOWRESIZED", None)
         events = pygame.event.get()
         has_mousewheel_event = any(ev.type == pygame.MOUSEWHEEL for ev in events)
 
         for ev in events:
             if ev.type == pygame.QUIT:
                 running = False
-            elif ev.type == pygame.VIDEORESIZE:
-                self.viewer.Wpix, self.viewer.Hpix = max(1024, ev.w), max(768, ev.h)
-                self.viewer.screen = pygame.display.set_mode((self.viewer.Wpix, self.viewer.Hpix), pygame.RESIZABLE)
-                wrect = self.viewer.layout.world_rect()
-                self.cam.update_screen_size(wrect.width, wrect.height)
-                self.cam.fit_to_world()
-                self.viewer.world_renderer.static_surf = None
+            elif ev.type == pygame.VIDEORESIZE or (window_resized_event is not None and ev.type == window_resized_event):
+                if not self.viewer.is_fullscreen:
+                    width = getattr(ev, "w", self.viewer.screen.get_width())
+                    height = getattr(ev, "h", self.viewer.screen.get_height())
+                    self.viewer.handle_window_resize(width, height)
+                    wrect = self.viewer.layout.world_rect()
+                    srect = self.viewer.layout.side_rect()
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
+                elif self._is_fullscreen_hotkey(ev):
+                    self.viewer.toggle_fullscreen()
+                    wrect = self.viewer.layout.world_rect()
+                    srect = self.viewer.layout.side_rect()
                 elif ev.key == pygame.K_SPACE:
                     self.viewer.paused = not self.viewer.paused
                 elif ev.key == pygame.K_PERIOD and self.viewer.paused:
@@ -192,6 +212,8 @@ class InputHandler:
                         factor = 1.15 if ev.button == 4 else 1 / 1.15
                         self.cam.zoom_at(factor, ev.pos[0] - wrect.x, ev.pos[1] - wrect.y)
                         self.viewer.world_renderer.static_surf = None
+                elif srect.collidepoint(ev.pos) and ev.button in (4, 5) and not has_mousewheel_event:
+                    self._scroll_side_panel(-1 if ev.button == 4 else 1)
             elif ev.type == pygame.MOUSEWHEEL:
                 mx, my = pygame.mouse.get_pos()
                 if wrect.collidepoint(mx, my):
@@ -200,5 +222,7 @@ class InputHandler:
                     elif ev.y < 0:
                         self.cam.zoom_at(1 / 1.15, mx - wrect.x, my - wrect.y)
                     self.viewer.world_renderer.static_surf = None
+                elif srect.collidepoint(mx, my):
+                    self._scroll_side_panel(-int(ev.y))
 
         return running, advance_tick

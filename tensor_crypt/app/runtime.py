@@ -14,6 +14,7 @@ Critical invariant:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 import random
 import numpy as np
 import torch
@@ -176,7 +177,7 @@ def validate_runtime_config() -> None:
         raise ValueError("CATASTROPHE.MAX_DURATION_TICKS must be >= CATASTROPHE.MIN_DURATION_TICKS")
     if cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE:
         try:
-            import torch.func  # noqa: F401
+            importlib.import_module("torch.func")
         except Exception as exc:
             raise ValueError(
                 "SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE requires torch.func support in the current PyTorch build"
@@ -268,3 +269,4 @@ def build_runtime(run_dir: str) -> SimulationRuntime:
         engine=engine,
         viewer=viewer,
     )
+

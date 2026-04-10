@@ -1,6 +1,6 @@
 # Tensor Crypt
 
-Tensor Crypt is a tensor-backed multi-agent simulation runtime with an interactive Pygame viewer. Agents live on a 2D grid with walls and heal zones, perceive the world through batched ray casting, act through per-agent policy/value networks, learn with PPO, reproduce through a binary parent model, and emit structured logs, checkpoints, and validation data.
+Tensor Crypt is a tensor-backed multi-agent simulation runtime with an interactive pygame-ce viewer. Agents live on a 2D grid with walls and heal zones, perceive the world through batched ray casting, act through per-agent policy/value networks, learn with PPO, reproduce through a binary parent model, and emit structured logs, checkpoints, and validation data.
 
 The project name refers to the repository's dense tensor substrate and its emphasis on durable runtime records such as identity ledgers, lineage, telemetry, and checkpoints. It is a simulation and learning project, not a cryptography library.
 
@@ -71,6 +71,8 @@ The runtime keeps dense tensors for speed, but identity is defined by monotonic 
 
 The repository ships with standard packaging metadata. An editable install keeps imports, scripts, and tests aligned with the checked-out tree.
 
+The viewer backend is intentionally pinned to the `pygame-ce` 2.5.x line. The code imports it as `pygame`, because `pygame-ce` provides the `pygame` module namespace. The checked-in manifests currently require `pygame-ce>=2.5.6,<2.6`, which matches the version line validated in this repository audit while still allowing patch-level updates within 2.5.x.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -125,7 +127,7 @@ The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 - `F1`-`F12`: trigger catastrophes manually
 - `C`: clear active catastrophes
 - `Y`: cycle catastrophe mode
-- `U`: toggle catastrophe auto mode
+- `U`: arm or disarm the catastrophe scheduler
 - `I`: toggle catastrophe panel
 - `O`: pause or resume the catastrophe scheduler
 

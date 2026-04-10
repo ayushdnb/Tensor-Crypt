@@ -94,7 +94,8 @@ class CatastropheManager:
         self.mode = str(cfg.CATASTROPHE.DEFAULT_MODE)
         self.last_auto_mode = self.mode if self.mode.startswith("auto_") else "auto_dynamic"
         self.scheduler_paused = False
-        self.auto_enabled = self.mode in {"auto_dynamic", "auto_static"}
+        self.scheduler_armed = bool(self.mode in {"auto_dynamic", "auto_static"} and cfg.CATASTROPHE.DEFAULT_SCHEDULER_ARMED)
+        self.auto_enabled = False
 
         self._rng = random.Random(int(cfg.SIM.SEED) + int(cfg.CATASTROPHE.RNG_STREAM_OFFSET))
         self._next_auto_tick: int | None = None
@@ -105,17 +106,34 @@ class CatastropheManager:
         self._last_status_cache_tick: int | None = None
         self._last_status_cache: dict[str, Any] | None = None
 
+        self._sync_scheduler_alias()
         self._plan_next_auto_tick(0)
 
     def _invalidate_status_cache(self) -> None:
         self._last_status_cache_tick = None
         self._last_status_cache = None
 
+    @staticmethod
+    def _is_auto_mode(mode: str) -> bool:
+        return str(mode) in {"auto_dynamic", "auto_static"}
+
+    def _sync_scheduler_alias(self) -> None:
+        self.auto_enabled = bool(self.scheduler_armed and self._is_auto_mode(self.mode))
+
+    def _scheduler_can_drive(self) -> bool:
+        return bool(
+            cfg.CATASTROPHE.ENABLED
+            and self._is_auto_mode(self.mode)
+            and self.scheduler_armed
+            and not self.scheduler_paused
+        )
+
     def reset(self) -> None:
         self.mode = str(cfg.CATASTROPHE.DEFAULT_MODE)
         self.last_auto_mode = self.mode if self.mode.startswith("auto_") else "auto_dynamic"
         self.scheduler_paused = False
-        self.auto_enabled = self.mode in {"auto_dynamic", "auto_static"}
+        self.scheduler_armed = bool(self._is_auto_mode(self.mode) and cfg.CATASTROPHE.DEFAULT_SCHEDULER_ARMED)
+        self._sync_scheduler_alias()
         self._rng = random.Random(int(cfg.SIM.SEED) + int(cfg.CATASTROPHE.RNG_STREAM_OFFSET))
         self._next_auto_tick = None
         self._static_cursor = 0
@@ -129,44 +147,80 @@ class CatastropheManager:
     def roster_ids(self) -> list[str]:
         return list(_CATASTROPHE_ORDER)
 
-    def cycle_mode(self) -> str:
+    def cycle_mode(self, current_tick: int = 0) -> str:
         modes = ["off", "manual_only", "auto_dynamic", "auto_static"]
         idx = modes.index(self.mode)
-        self.mode = modes[(idx + 1) % len(modes)]
-        self.auto_enabled = self.mode in {"auto_dynamic", "auto_static"}
-        if self.auto_enabled:
-            self.last_auto_mode = self.mode
-        self._invalidate_status_cache()
-        self._plan_next_auto_tick(0)
+        self.set_mode(modes[(idx + 1) % len(modes)], current_tick=current_tick)
         return self.mode
 
-    def toggle_auto_enable(self) -> str:
-        if self.mode in {"auto_dynamic", "auto_static"}:
-            self.last_auto_mode = self.mode
-            self.mode = "manual_only"
-            self.auto_enabled = False
-        else:
-            self.mode = self.last_auto_mode
-            self.auto_enabled = True
+    def set_scheduler_armed(self, armed: bool, current_tick: int = 0) -> bool:
+        armed = bool(armed)
+        if self._is_auto_mode(self.mode):
+            self.scheduler_armed = armed
+            if not armed:
+                self.scheduler_paused = False
+            self._sync_scheduler_alias()
+            self._plan_next_auto_tick(current_tick)
+            self._invalidate_status_cache()
+            return self.scheduler_armed
+
+        if armed:
+            self.set_mode(self.last_auto_mode, current_tick=current_tick, arm_scheduler=True)
+            return True
+
+        self.scheduler_armed = False
+        self.scheduler_paused = False
+        self._sync_scheduler_alias()
+        self._next_auto_tick = None
         self._invalidate_status_cache()
-        if self.auto_enabled:
-            self._plan_next_auto_tick(0)
+        return False
+
+    def toggle_scheduler_armed(self, current_tick: int = 0) -> bool:
+        if self._is_auto_mode(self.mode):
+            return self.set_scheduler_armed(not self.scheduler_armed, current_tick=current_tick)
+        return self.set_scheduler_armed(True, current_tick=current_tick)
+
+    def toggle_auto_enable(self, current_tick: int = 0) -> str:
+        self.toggle_scheduler_armed(current_tick=current_tick)
         return self.mode
 
-    def toggle_scheduler_pause(self) -> bool:
+    def toggle_scheduler_pause(self, current_tick: int = 0) -> bool:
+        if not self._is_auto_mode(self.mode) or not self.scheduler_armed:
+            self.scheduler_paused = False
+            self._invalidate_status_cache()
+            return False
         self.scheduler_paused = not self.scheduler_paused
+        if not self.scheduler_paused and (self._next_auto_tick is None or int(self._next_auto_tick) <= int(current_tick)):
+            self._plan_next_auto_tick(current_tick)
         self._invalidate_status_cache()
         return self.scheduler_paused
 
-    def set_mode(self, mode: str) -> None:
+    def set_mode(self, mode: str, *, current_tick: int = 0, arm_scheduler: bool | None = None) -> None:
         if mode not in {"off", "manual_only", "auto_dynamic", "auto_static"}:
             raise ValueError(f"Unsupported catastrophe mode: {mode}")
+
+        prior_mode = self.mode
+        prior_scheduler_armed = self.scheduler_armed
         self.mode = str(mode)
-        self.auto_enabled = self.mode in {"auto_dynamic", "auto_static"}
-        if self.auto_enabled:
+
+        if self._is_auto_mode(self.mode):
             self.last_auto_mode = self.mode
+            if arm_scheduler is None:
+                if self._is_auto_mode(prior_mode):
+                    arm_scheduler = prior_scheduler_armed
+                else:
+                    arm_scheduler = bool(cfg.CATASTROPHE.DEFAULT_SCHEDULER_ARMED)
+            self.scheduler_armed = bool(arm_scheduler)
+        else:
+            self.scheduler_armed = False
+            self.scheduler_paused = False
+
+        if not self.scheduler_armed:
+            self.scheduler_paused = False
+
+        self._sync_scheduler_alias()
         self._invalidate_status_cache()
-        self._plan_next_auto_tick(0)
+        self._plan_next_auto_tick(current_tick)
 
     def _enabled_ids(self) -> list[str]:
         return [cat_id for cat_id in _CATASTROPHE_ORDER if cfg.CATASTROPHE.TYPE_ENABLED.get(cat_id, False)]
@@ -217,6 +271,9 @@ class CatastropheManager:
         raise ValueError(f"Unsupported CATASTROPHE.AUTO_STATIC_ORDERING_POLICY: {cfg.CATASTROPHE.AUTO_STATIC_ORDERING_POLICY!r}")
 
     def _plan_next_auto_tick(self, current_tick: int) -> None:
+        if not self._is_auto_mode(self.mode) or not self.scheduler_armed:
+            self._next_auto_tick = None
+            return
         if self.mode == "auto_dynamic":
             self._next_auto_tick = int(current_tick) + self._sample_dynamic_gap()
         elif self.mode == "auto_static":
@@ -324,7 +381,7 @@ class CatastropheManager:
             }
         )
 
-        if self.mode in {"auto_dynamic", "auto_static"}:
+        if self._is_auto_mode(self.mode) and self.scheduler_armed:
             self._plan_next_auto_tick(int(tick))
         return True
 
@@ -333,8 +390,8 @@ class CatastropheManager:
             return False
         return self._start_event(_CATASTROPHE_ORDER[roster_index], tick, manual=True)
 
-    def manual_clear(self, tick: int) -> int:
-        if not cfg.CATASTROPHE.MANUAL_CLEAR_ENABLED:
+    def clear_active_catastrophes(self, tick: int, *, require_permission: bool = True) -> int:
+        if require_permission and not cfg.CATASTROPHE.MANUAL_CLEAR_ENABLED:
             return 0
         cleared = 0
         for event in list(self._active):
@@ -353,10 +410,18 @@ class CatastropheManager:
             )
             self._active.remove(event)
             cleared += 1
-        if cleared:
-            self._visual_state_version += 1
-            self._invalidate_status_cache()
+        if not cleared:
+            return 0
+        self._visual_state_version += 1
+        self._invalidate_status_cache()
+        self.grid.paint_hzones()
+        self.apply_world_overrides(int(tick))
+        if self._scheduler_can_drive() and (self._next_auto_tick is None or int(self._next_auto_tick) <= int(tick)):
+            self._plan_next_auto_tick(int(tick))
         return cleared
+
+    def manual_clear(self, tick: int) -> int:
+        return self.clear_active_catastrophes(tick, require_permission=True)
 
     def pre_tick(self, tick: int) -> None:
         expired = [event for event in self._active if int(tick) >= event.end_tick]
@@ -379,11 +444,7 @@ class CatastropheManager:
             self._visual_state_version += 1
             self._invalidate_status_cache()
 
-        if not cfg.CATASTROPHE.ENABLED:
-            return
-        if self.mode not in {"auto_dynamic", "auto_static"}:
-            return
-        if self.scheduler_paused:
+        if not self._scheduler_can_drive():
             return
         if self._next_auto_tick is None or int(tick) < int(self._next_auto_tick):
             return
@@ -539,10 +600,16 @@ class CatastropheManager:
 
         status = {
             "mode": self.mode,
-            "scheduler_paused": self.scheduler_paused,
-            "auto_enabled": self.auto_enabled,
-            "next_auto_tick": self._next_auto_tick,
+            "global_enabled": bool(cfg.CATASTROPHE.ENABLED),
+            "scheduler_armed": bool(self.scheduler_armed and self._is_auto_mode(self.mode)),
+            "scheduler_paused": bool(self.scheduler_paused and self.scheduler_armed and self._is_auto_mode(self.mode)),
+            "scheduler_running": bool(self._scheduler_can_drive()),
+            "auto_enabled": bool(self.scheduler_armed and self._is_auto_mode(self.mode)),
+            "manual_trigger_enabled": bool(cfg.CATASTROPHE.MANUAL_TRIGGER_ENABLED),
+            "manual_clear_enabled": bool(cfg.CATASTROPHE.MANUAL_CLEAR_ENABLED),
+            "next_auto_tick": self._next_auto_tick if (self.scheduler_armed and self._is_auto_mode(self.mode)) else None,
             "active_count": len(self._active),
+            "has_active": bool(self._active),
             "active_names": [event.display_name for event in self._active],
             "active_details": active_details,
             "visual_state_version": self._visual_state_version,
@@ -559,6 +626,7 @@ class CatastropheManager:
             "mode": self.mode,
             "last_auto_mode": self.last_auto_mode,
             "scheduler_paused": self.scheduler_paused,
+            "scheduler_armed": self.scheduler_armed,
             "auto_enabled": self.auto_enabled,
             "next_auto_tick": self._next_auto_tick,
             "static_cursor": self._static_cursor,
@@ -582,10 +650,13 @@ class CatastropheManager:
 
     def restore(self, payload: dict[str, Any]) -> None:
         self.mode = str(payload["mode"])
-        self.last_auto_mode = str(payload.get("last_auto_mode", self.mode))
-        self.scheduler_paused = bool(payload.get("scheduler_paused", False))
-        self.auto_enabled = bool(payload.get("auto_enabled", self.mode in {"auto_dynamic", "auto_static"}))
-        self._next_auto_tick = payload.get("next_auto_tick")
+        self.last_auto_mode = str(payload.get("last_auto_mode", self.mode if self._is_auto_mode(self.mode) else "auto_dynamic"))
+        self.scheduler_armed = bool(payload.get("scheduler_armed", payload.get("auto_enabled", self._is_auto_mode(self.mode))))
+        if not self._is_auto_mode(self.mode):
+            self.scheduler_armed = False
+        self.scheduler_paused = bool(payload.get("scheduler_paused", False)) if self.scheduler_armed else False
+        self._sync_scheduler_alias()
+        self._next_auto_tick = payload.get("next_auto_tick") if self.scheduler_armed and self._is_auto_mode(self.mode) else None
         self._static_cursor = int(payload.get("static_cursor", 0))
         self._event_counter = int(payload.get("event_counter", 0))
         self._visual_state_version = int(payload.get("visual_state_version", 0))

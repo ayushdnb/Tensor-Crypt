@@ -5,5 +5,5 @@ numpy
 pandas
 psutil
 pyarrow
-pygame
+pygame-ce>=2.5.6,<2.6
 torch

@@ -44,5 +44,7 @@ def get_bloodline_base_color(family_id: str) -> tuple[int, int, int]:
 
 def get_bloodline_agent_color(family_id: str, hp_ratio: float) -> tuple[int, int, int]:
     base = get_bloodline_base_color(family_id)
+    if not cfg.VIEW.BLOODLINE_LOW_HP_COLOR_MODULATION_ENABLED:
+        return base
     shaded = _blend_rgb(COLORS["bloodline_shadow"], base, 1.0 - cfg.VIEW.BLOODLINE_LOW_HP_SHADE)
     return _blend_rgb(shaded, base, hp_ratio)
