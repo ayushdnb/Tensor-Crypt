@@ -12,6 +12,14 @@ class InputHandler:
         self.engine = viewer.engine
 
     @staticmethod
+    def _zoom_factor_for_steps(steps: int):
+        steps = int(steps)
+        if steps == 0:
+            return None
+        base = max(1.001, float(cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR))
+        return float(base ** steps)
+
+    @staticmethod
     def _is_fullscreen_hotkey(ev) -> bool:
         mods = getattr(ev, "mod", 0)
         return bool(mods & pygame.KMOD_ALT) and ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER)
@@ -86,9 +94,9 @@ class InputHandler:
         tol_sq = tol * tol
 
         for slot_id, agent in state_data["agent_map"].items():
-            ax, ay = self.cam.world_to_screen(agent["x"], agent["y"])
-            center_x = wrect.x + ax + c / 2.0
-            center_y = wrect.y + ay + c / 2.0
+            agent_rect = self.cam.cell_rect_px(agent["x"], agent["y"])
+            center_x = wrect.x + agent_rect.centerx
+            center_y = wrect.y + agent_rect.centery
             dx = mx - center_x
             dy = my - center_y
             dist_sq = dx * dx + dy * dy
@@ -209,19 +217,19 @@ class InputHandler:
                                 self.viewer.selected_slot_id = None
                                 self.viewer.selected_hzone_id = None
                     elif ev.button in (4, 5) and not has_mousewheel_event:
-                        factor = 1.15 if ev.button == 4 else 1 / 1.15
-                        self.cam.zoom_at(factor, ev.pos[0] - wrect.x, ev.pos[1] - wrect.y)
-                        self.viewer.world_renderer.static_surf = None
+                        factor = self._zoom_factor_for_steps(1 if ev.button == 4 else -1)
+                        if factor is not None:
+                            self.cam.zoom_at(factor, ev.pos[0] - wrect.x, ev.pos[1] - wrect.y)
+                            self.viewer.world_renderer.static_surf = None
                 elif srect.collidepoint(ev.pos) and ev.button in (4, 5) and not has_mousewheel_event:
                     self._scroll_side_panel(-1 if ev.button == 4 else 1)
             elif ev.type == pygame.MOUSEWHEEL:
                 mx, my = pygame.mouse.get_pos()
                 if wrect.collidepoint(mx, my):
-                    if ev.y > 0:
-                        self.cam.zoom_at(1.15, mx - wrect.x, my - wrect.y)
-                    elif ev.y < 0:
-                        self.cam.zoom_at(1 / 1.15, mx - wrect.x, my - wrect.y)
-                    self.viewer.world_renderer.static_surf = None
+                    factor = self._zoom_factor_for_steps(ev.y)
+                    if factor is not None:
+                        self.cam.zoom_at(factor, mx - wrect.x, my - wrect.y)
+                        self.viewer.world_renderer.static_surf = None
                 elif srect.collidepoint(mx, my):
                     self._scroll_side_panel(-int(ev.y))
 

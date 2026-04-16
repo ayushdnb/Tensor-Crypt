@@ -1,3 +1,6 @@
+import pygame
+
+
 class Camera:
     def __init__(self, screen_width, screen_height, grid_w, grid_h):
         self.screen_width = screen_width
@@ -59,10 +62,54 @@ class Camera:
         self.offset_y += world_y - new_world_y
         self._clamp_offsets()
 
-    def world_to_screen(self, x, y):
+    def world_to_screen_float(self, x, y):
         cx = (x - self.offset_x) * self.cell_px
         cy = (y - self.offset_y) * self.cell_px
+        return float(cx), float(cy)
+
+    def world_to_screen(self, x, y):
+        cx, cy = self.world_to_screen_float(x, y)
         return int(cx), int(cy)
+
+    def edge_x_to_screen(self, x):
+        """Authoritative integer raster boundary for a vertical world edge."""
+        return int(round((x - self.offset_x) * self.cell_px))
+
+    def edge_y_to_screen(self, y):
+        """Authoritative integer raster boundary for a horizontal world edge."""
+        return int(round((y - self.offset_y) * self.cell_px))
+
+    def cell_rect_px(self, x, y):
+        """
+        Rasterize one world cell from both transformed edges.
+
+        This is the canonical cell-to-pixel contract for viewer drawing.
+        """
+        left = self.edge_x_to_screen(x)
+        top = self.edge_y_to_screen(y)
+        right = self.edge_x_to_screen(x + 1.0)
+        bottom = self.edge_y_to_screen(y + 1.0)
+        if right <= left:
+            right = left + 1
+        if bottom <= top:
+            bottom = top + 1
+        return pygame.Rect(left, top, right - left, bottom - top)
+
+    def world_rect_px(self, x1, y1, x2, y2):
+        """
+        Rasterize a world-space rectangle from both transformed edges.
+
+        `x2` and `y2` are exclusive world edges.
+        """
+        left = self.edge_x_to_screen(x1)
+        top = self.edge_y_to_screen(y1)
+        right = self.edge_x_to_screen(x2)
+        bottom = self.edge_y_to_screen(y2)
+        if right <= left:
+            right = left + 1
+        if bottom <= top:
+            bottom = top + 1
+        return pygame.Rect(left, top, right - left, bottom - top)
 
     def screen_to_world(self, cx, cy):
         gx = int(self.offset_x + cx / self.cell_px)

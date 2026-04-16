@@ -31,9 +31,7 @@ class WorldRenderer:
 
         for y in range(h):
             for x in range(w):
-                cx, cy = self.cam.world_to_screen(x, y)
-                c = self.cam.cell_px
-                rect = (cx, cy, math.ceil(c), math.ceil(c))
+                rect = self.cam.cell_rect_px(x, y)
                 if occ_np[y, x] == 1.0:
                     pygame.draw.rect(self.static_surf, COLORS["wall"], rect)
                 if self.viewer.show_hzones:
@@ -71,10 +69,9 @@ class WorldRenderer:
 
     def _draw_agents(self, surf, wrect, c, state_data):
         for slot_id, agent in state_data["agent_map"].items():
-            cx, cy = self.cam.world_to_screen(agent["x"], agent["y"])
             hp_ratio = agent["hp"] / (agent["hp_max"] + 1e-6)
             color = get_bloodline_agent_color(agent["family_id"], hp_ratio)
-            agent_rect = (wrect.x + cx, wrect.y + cy, math.ceil(c), math.ceil(c))
+            agent_rect = self.cam.cell_rect_px(agent["x"], agent["y"]).move(wrect.x, wrect.y)
             pygame.draw.rect(surf, color, agent_rect)
 
     def _draw_hp_bars(self, surf, wrect, c, state_data):
@@ -82,44 +79,46 @@ class WorldRenderer:
             return
         for slot_id, agent in state_data["agent_map"].items():
             hp_ratio = agent["hp"] / (agent["hp_max"] + 1e-6)
-            cx, cy = self.cam.world_to_screen(agent["x"], agent["y"])
-            bar_w, bar_h = c, max(1, c // 8)
-            bar_y = wrect.y + cy - bar_h - 2
+            cell_rect = self.cam.cell_rect_px(agent["x"], agent["y"])
+            bar_w = cell_rect.width
+            bar_h = max(1, cell_rect.height // 8)
+            bar_y = wrect.y + cell_rect.top - bar_h - 2
             if wrect.y < bar_y < wrect.bottom:
-                bg_rect = (wrect.x + cx, bar_y, bar_w, bar_h)
-                fg_rect = (wrect.x + cx, bar_y, bar_w * hp_ratio, bar_h)
+                fg_width = max(0, min(bar_w, int(round(bar_w * hp_ratio))))
+                bg_rect = pygame.Rect(wrect.x + cell_rect.left, bar_y, bar_w, bar_h)
                 pygame.draw.rect(surf, COLORS["bar_bg"], bg_rect)
-                pygame.draw.rect(surf, COLORS["bar_fg_hp"], fg_rect)
+                if fg_width > 0:
+                    fg_rect = pygame.Rect(wrect.x + cell_rect.left, bar_y, fg_width, bar_h)
+                    pygame.draw.rect(surf, COLORS["bar_fg_hp"], fg_rect)
 
     def _draw_selection_markers(self, surf, wrect, c, state_data):
         slot_id = self.viewer.selected_slot_id
         if slot_id is not None and slot_id in state_data["agent_map"]:
             agent = state_data["agent_map"][slot_id]
-            cx, cy = self.cam.world_to_screen(agent["x"], agent["y"])
-            marker_rect = (wrect.x + cx, wrect.y + cy, math.ceil(c), math.ceil(c))
+            marker_rect = self.cam.cell_rect_px(agent["x"], agent["y"]).move(wrect.x, wrect.y)
             pygame.draw.rect(surf, COLORS["selection_marker"], marker_rect, max(1, int(c // 10)))
 
         hzone_id = self.viewer.selected_hzone_id
         if hzone_id is not None:
             zone = self.engine.grid.get_hzone(hzone_id)
             if zone:
-                cx1, cy1 = self.cam.world_to_screen(zone["x1"], zone["y1"])
-                cx2, cy2 = self.cam.world_to_screen(zone["x2"] + 1, zone["y2"] + 1)
-                screen_w = cx2 - cx1
-                screen_h = cy2 - cy1
-                marker_rect = (wrect.x + cx1, wrect.y + cy1, screen_w, screen_h)
+                marker_rect = self.cam.world_rect_px(
+                    zone["x1"],
+                    zone["y1"],
+                    zone["x2"] + 1,
+                    zone["y2"] + 1,
+                ).move(wrect.x, wrect.y)
                 pygame.draw.rect(surf, COLORS["selection_marker_hzone"], marker_rect, max(1, int(c // 10)))
 
     def _draw_grid_lines(self, surf, wrect, c):
-        ax, ay = self.cam.world_to_screen(0, 0)
-        off_x, off_y = (c - (ax % c)) % c, (c - (ay % c)) % c
-        x, y = wrect.x + off_x, wrect.y + off_y
-        while x < wrect.right:
-            pygame.draw.line(surf, COLORS["grid"], (x, wrect.y), (x, wrect.bottom))
-            x += c
-        while y < wrect.bottom:
-            pygame.draw.line(surf, COLORS["grid"], (wrect.x, y), (wrect.right, y))
-            y += c
+        for gx in range(self.grid.W + 1):
+            sx = wrect.x + self.cam.edge_x_to_screen(gx)
+            if wrect.left <= sx <= wrect.right:
+                pygame.draw.line(surf, COLORS["grid"], (sx, wrect.y), (sx, wrect.bottom))
+        for gy in range(self.grid.H + 1):
+            sy = wrect.y + self.cam.edge_y_to_screen(gy)
+            if wrect.top <= sy <= wrect.bottom:
+                pygame.draw.line(surf, COLORS["grid"], (wrect.x, sy), (wrect.right, sy))
 
     def _draw_rays(self, surf, wrect, c, state_data):
         slot_id = self.viewer.selected_slot_id
@@ -129,9 +128,10 @@ class WorldRenderer:
         agent = state_data["agent_map"][slot_id]
         agent_x = agent["x"]
         agent_y = agent["y"]
+        start_cell_rect = self.cam.cell_rect_px(agent_x, agent_y)
         start_pos_screen = (
-            wrect.x + self.cam.world_to_screen(agent_x, agent_y)[0] + c // 2,
-            wrect.y + self.cam.world_to_screen(agent_x, agent_y)[1] + c // 2,
+            wrect.x + start_cell_rect.centerx,
+            wrect.y + start_cell_rect.centery,
         )
         vision_range = int(self.engine.perception.get_effective_vision_for_slot(slot_id))
         occ_grid = self.grid.grid[0]
@@ -177,18 +177,17 @@ class WorldRenderer:
         border_rect = catastrophe_state.get("thorn_march_safe_rect")
         if border_rect:
             x1, y1, x2, y2 = border_rect
-            sx1, sy1 = self.cam.world_to_screen(x1, y1)
-            sx2, sy2 = self.cam.world_to_screen(x2 + 1, y2 + 1)
+            rect = self.cam.world_rect_px(x1, y1, x2 + 1, y2 + 1)
             pygame.draw.rect(
                 surf,
                 (215, 80, 80),
-                (wrect.x + sx1, wrect.y + sy1, max(1, sx2 - sx1), max(1, sy2 - sy1)),
+                rect.move(wrect.x, wrect.y),
                 2,
             )
 
         woundtide_x = catastrophe_state.get("woundtide_front_x")
         if woundtide_x is not None:
-            sx, _ = self.cam.world_to_screen(woundtide_x, 0)
+            sx = self.cam.edge_x_to_screen(woundtide_x)
             pygame.draw.line(surf, (220, 70, 120), (wrect.x + sx, wrect.y), (wrect.x + sx, wrect.bottom), 2)
 
 

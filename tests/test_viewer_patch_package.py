@@ -45,6 +45,46 @@ def test_camera_fit_clamp_and_zoom_bounds():
     assert isinstance(wy, float)
 
 
+def test_camera_cell_rect_px_is_well_formed_and_contiguous_for_fractional_zoom():
+    cam = Camera(screen_width=400, screen_height=300, grid_w=64, grid_h=48)
+
+    contiguous_cases = (
+        (1.0, 0.10, 0.20),
+        (1.25, 3.33, 1.75),
+        (2.20, -0.25, 0.50),
+        (3.20, 0.49, -0.10),
+        (7.90, 5.10, 4.25),
+    )
+    for cell_px, offset_x, offset_y in contiguous_cases:
+        cam.cell_px = cell_px
+        cam.offset_x = offset_x
+        cam.offset_y = offset_y
+
+        prev_rect = None
+        for x in range(12):
+            rect = cam.cell_rect_px(x, 5)
+            assert rect.width >= 1
+            assert rect.height >= 1
+            if prev_rect is not None:
+                assert rect.left == prev_rect.right
+            prev_rect = rect
+
+    subpixel_cases = (
+        (0.50, 0.10, 0.20),
+        (0.75, 3.33, 1.75),
+        (0.95, -0.25, 0.50),
+    )
+    for cell_px, offset_x, offset_y in subpixel_cases:
+        cam.cell_px = cell_px
+        cam.offset_x = offset_x
+        cam.offset_y = offset_y
+
+        for x in range(12):
+            rect = cam.cell_rect_px(x, 5)
+            assert rect.width >= 1
+            assert rect.height >= 1
+
+
 def test_viewer_state_data_has_family_alive_counts_and_params(runtime_builder):
     runtime = runtime_builder(seed=601, width=14, height=14, agents=8, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
     viewer = runtime.viewer
@@ -61,39 +101,107 @@ def test_viewer_state_data_has_family_alive_counts_and_params(runtime_builder):
 def test_input_fit_mousewheel_and_resize_preserves_zoom(runtime_builder, monkeypatch):
     runtime = runtime_builder(seed=602, width=16, height=16, agents=6, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
     viewer = runtime.viewer
+    old_step = cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR
+    cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR = 1.08
+    try:
+        viewer.cam.pan(999, 999)
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_f}))
+        running, advance = viewer.input_handler.handle()
+        assert running is True
+        assert advance is False
 
-    viewer.cam.pan(999, 999)
-    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_f}))
-    running, advance = viewer.input_handler.handle()
-    assert running is True
-    assert advance is False
+        min_ox, max_ox, min_oy, max_oy = _offset_bounds(viewer.cam)
+        assert min_ox <= viewer.cam.offset_x <= max_ox
+        assert min_oy <= viewer.cam.offset_y <= max_oy
 
-    min_ox, max_ox, min_oy, max_oy = _offset_bounds(viewer.cam)
-    assert min_ox <= viewer.cam.offset_x <= max_ox
-    assert min_oy <= viewer.cam.offset_y <= max_oy
+        wrect = viewer.layout.world_rect()
+        monkeypatch.setattr(pygame.mouse, "get_pos", lambda: (wrect.x + 10, wrect.y + 10))
 
+        before_zoom = viewer.cam.cell_px
+        pygame.event.post(pygame.event.Event(pygame.MOUSEWHEEL, {"x": 0, "y": 1}))
+        viewer.input_handler.handle()
+        assert math.isclose(
+            viewer.cam.cell_px,
+            min(viewer.cam.max_zoom, before_zoom * cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR),
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+
+        before_zoom_out = viewer.cam.cell_px
+        pygame.event.post(pygame.event.Event(pygame.MOUSEWHEEL, {"x": 0, "y": -1}))
+        viewer.input_handler.handle()
+        assert math.isclose(
+            viewer.cam.cell_px,
+            max(viewer.cam.min_zoom, before_zoom_out / cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR),
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+
+        before_resize_zoom = viewer.cam.cell_px
+        pygame.event.post(pygame.event.Event(pygame.VIDEORESIZE, {"w": 640, "h": 480}))
+        viewer.input_handler.handle()
+        world_rect = viewer.layout.world_rect()
+        assert viewer.Wpix == 640
+        assert viewer.Hpix == 480
+        assert viewer.cam.screen_width == world_rect.width
+        assert viewer.cam.screen_height == world_rect.height
+        assert viewer.cam.cell_px == before_resize_zoom
+    finally:
+        cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR = old_step
+
+
+def test_legacy_mousewheel_button_path_uses_configured_zoom_factor(runtime_builder):
+    runtime = runtime_builder(seed=612, width=16, height=16, agents=6, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
+    old_step = cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR
+    cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR = 1.08
+    try:
+        wrect = viewer.layout.world_rect()
+        before_zoom = viewer.cam.cell_px
+        pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": wrect.center, "button": 4}))
+        viewer.input_handler.handle()
+        assert math.isclose(
+            viewer.cam.cell_px,
+            min(viewer.cam.max_zoom, before_zoom * cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR),
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+
+        before_zoom_out = viewer.cam.cell_px
+        pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": wrect.center, "button": 5}))
+        viewer.input_handler.handle()
+        assert math.isclose(
+            viewer.cam.cell_px,
+            max(viewer.cam.min_zoom, before_zoom_out / cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR),
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+    finally:
+        cfg.VIEW.WHEEL_ZOOM_STEP_FACTOR = old_step
+
+
+def test_fractional_zoom_draw_and_click_smoke(runtime_builder):
+    runtime = runtime_builder(seed=613, width=18, height=18, agents=6, walls=0, hzones=1, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
     wrect = viewer.layout.world_rect()
-    monkeypatch.setattr(pygame.mouse, "get_pos", lambda: (wrect.x + 10, wrect.y + 10))
+    viewer.cam.zoom_at(1.37, wrect.width // 2, wrect.height // 2)
 
-    before_zoom = viewer.cam.cell_px
-    pygame.event.post(pygame.event.Event(pygame.MOUSEWHEEL, {"x": 0, "y": 1}))
-    viewer.input_handler.handle()
-    assert viewer.cam.cell_px >= before_zoom
+    state_data = viewer._prepare_state_data()
+    viewer._last_state_data = state_data
 
-    before_zoom_out = viewer.cam.cell_px
-    pygame.event.post(pygame.event.Event(pygame.MOUSEWHEEL, {"x": 0, "y": -1}))
-    viewer.input_handler.handle()
-    assert viewer.cam.cell_px <= before_zoom_out
+    surface = pygame.Surface((viewer.Wpix, viewer.Hpix))
+    viewer.world_renderer.draw(surface, state_data)
 
-    before_resize_zoom = viewer.cam.cell_px
-    pygame.event.post(pygame.event.Event(pygame.VIDEORESIZE, {"w": 640, "h": 480}))
+    slot_id = next(iter(state_data["agent_map"]))
+    agent = state_data["agent_map"][slot_id]
+    agent_rect = viewer.cam.cell_rect_px(agent["x"], agent["y"])
+    click_pos = (wrect.x + agent_rect.centerx, wrect.y + agent_rect.centery)
+
+    pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": click_pos, "button": 1}))
     viewer.input_handler.handle()
-    world_rect = viewer.layout.world_rect()
-    assert viewer.Wpix == 640
-    assert viewer.Hpix == 480
-    assert viewer.cam.screen_width == world_rect.width
-    assert viewer.cam.screen_height == world_rect.height
-    assert viewer.cam.cell_px == before_resize_zoom
+
+    assert viewer.selected_slot_id == slot_id
+    assert viewer.selected_hzone_id is None
 
 
 def test_selection_prefers_agent_over_zone_with_proximity_pick(runtime_builder, monkeypatch):

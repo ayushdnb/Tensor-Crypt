@@ -1181,6 +1181,13 @@ class ViewerConfig:
     # Pure presentation knob.
     WINDOW_HEIGHT: int = 800
     #
+    # CURRENT STATUS: active runtime knob.
+    # Per-wheel-step multiplicative zoom factor for world zoom.
+    # Values closer to 1.0 make zoom gentler and reduce one-notch framing jumps.
+    # This factor is used consistently by both pygame.MOUSEWHEEL and legacy
+    # button-4/button-5 fallback paths.
+    WHEEL_ZOOM_STEP_FACTOR: float = 1.08
+    #
     # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
     # Audit basis: no direct `.VIEW.CELL_SIZE` runtime read was found in the code dump.
     # Documented default cell-size control.
