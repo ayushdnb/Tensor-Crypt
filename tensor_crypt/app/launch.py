@@ -15,14 +15,20 @@ from __future__ import annotations
 
 from .runtime import build_runtime, setup_determinism
 from ..config_bridge import cfg
+from ..runtime_config import apply_experimental_single_family_launch_defaults
 from ..telemetry.run_paths import create_run_directory
 
 
 def main() -> None:
+    apply_experimental_single_family_launch_defaults()
     setup_determinism()
     run_dir = create_run_directory()
 
     print(f"Device: {cfg.SIM.DEVICE}")
+    print(
+        "Startup mode: experimental self-centric single-family preset "
+        f"({cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY})"
+    )
     print(
         f"Starting simulation with {cfg.AGENTS.N} agents on "
         f"{cfg.GRID.W}x{cfg.GRID.H} grid"

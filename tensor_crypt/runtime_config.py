@@ -2074,3 +2074,20 @@ class Config:
 
 
 cfg = Config()
+
+
+def apply_experimental_single_family_launch_defaults() -> None:
+    """
+    Force the live app launch path onto the experimental self-centric preset.
+
+    This intentionally mutates only the process-local runtime config object used
+    by the repository entrypoints. Test helpers and direct programmatic callers
+    can still override these fields explicitly after import.
+    """
+
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY or cfg.BRAIN.DEFAULT_FAMILY)
+    cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION = False
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = True
