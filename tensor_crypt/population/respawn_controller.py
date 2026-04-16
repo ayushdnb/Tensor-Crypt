@@ -312,6 +312,12 @@ class RespawnController:
         if policy not in {"seed_bank_bootstrap", "admin_spawn_defaults"}:
             raise ValueError(f"Unsupported extinction policy: {policy}")
 
+        bootstrap_family = (
+            str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY)
+            if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET
+            else str(cfg.RESPAWN.EXTINCTION_BOOTSTRAP_FAMILY)
+        )
+
         spawns = 0
         for slot_idx in dead_slots[: int(cfg.RESPAWN.EXTINCTION_BOOTSTRAP_SPAWNS)]:
             latent = default_trait_latent()
@@ -328,7 +334,7 @@ class RespawnController:
                 grid=grid,
                 traits=traits,
                 tick_born=tick,
-                family_id=cfg.RESPAWN.EXTINCTION_BOOTSTRAP_FAMILY,
+                family_id=bootstrap_family,
                 parent_roles={"brain_parent_uid": -1, "trait_parent_uid": -1, "anchor_parent_uid": -1},
                 trait_latent=latent,
                 birth_hp=birth_hp_value(traits),
@@ -344,7 +350,7 @@ class RespawnController:
                     brain_parent_uid=-1,
                     trait_parent_uid=-1,
                     anchor_parent_uid=-1,
-                    child_family=cfg.RESPAWN.EXTINCTION_BOOTSTRAP_FAMILY,
+                    child_family=bootstrap_family,
                     brain_parent_family=None,
                     trait_parent_family=None,
                     traits=traits,
@@ -516,7 +522,9 @@ class RespawnController:
 
             brain_parent_family = registry.get_family_for_uid(parent_roles.brain_parent_uid)
             child_family = brain_parent_family
-            if mutation_flags.family_shift:
+            if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET:
+                child_family = str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY)
+            elif mutation_flags.family_shift:
                 child_family = pick_shifted_family(brain_parent_family)
 
             child_brain = registry.ensure_slot_brain_family(slot_idx, child_family)

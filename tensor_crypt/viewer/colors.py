@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..agents.brain import get_bloodline_color
 from ..config_bridge import cfg
 
 
@@ -38,8 +39,7 @@ def _blend_rgb(low: tuple[int, int, int], high: tuple[int, int, int], alpha: flo
 
 
 def get_bloodline_base_color(family_id: str) -> tuple[int, int, int]:
-    raw = cfg.BRAIN.FAMILY_COLORS[family_id]
-    return tuple(int(channel) for channel in raw)
+    return get_bloodline_color(family_id)
 
 
 def get_bloodline_agent_color(family_id: str, hp_ratio: float) -> tuple[int, int, int]:

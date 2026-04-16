@@ -1,9 +1,9 @@
 """
 Runtime assembly for Tensor Crypt.
 
-The runtime builder wires together the stable subsystem graph for one
-simulation run. This module is intentionally allowed to know about many
-subsystems at once because assembly is its sole responsibility.
+This module assembles the stable subsystem graph for a single simulation run.
+It is intentionally allowed to depend on many subsystems at once because
+assembly, validation, and launch-order preservation are its sole concerns.
 
 Critical invariant:
 - the order of map generation, initial spawn, engine construction, and viewer
@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import random
+
 import numpy as np
 import torch
 
@@ -35,6 +36,7 @@ from ..world.spatial_grid import Grid
 SUPPORTED_GRID_OVERLAP_MODES = frozenset({"max_abs", "sum_clamped", "last_wins"})
 SUPPORTED_SPAWN_MODES = frozenset({"uniform"})
 SUPPORTED_METAB_FORMS = frozenset({"affine_combo"})
+SUPPORTED_OBS_MODES = frozenset({"canonical_v2", "experimental_selfcentric_v1"})
 SUPPORTED_INITIAL_FAMILY_ASSIGNMENTS = frozenset({"round_robin", "weighted_random"})
 SUPPORTED_RESPAWN_MODES = frozenset({"binary_parented"})
 SUPPORTED_ANCHOR_PARENT_SELECTORS = frozenset({"brain_parent", "trait_parent", "random_parent", "fitter_of_two"})
@@ -92,6 +94,7 @@ def validate_runtime_config() -> None:
     _require_choice("GRID.HZ_OVERLAP_MODE", cfg.GRID.HZ_OVERLAP_MODE, SUPPORTED_GRID_OVERLAP_MODES)
     _require_choice("AGENTS.SPAWN_MODE", cfg.AGENTS.SPAWN_MODE, SUPPORTED_SPAWN_MODES)
     _require_choice("TRAITS.METAB_FORM", cfg.TRAITS.METAB_FORM, SUPPORTED_METAB_FORMS)
+    _require_choice("PERCEPT.OBS_MODE", cfg.PERCEPT.OBS_MODE, SUPPORTED_OBS_MODES)
     _require_choice("BRAIN.INITIAL_FAMILY_ASSIGNMENT", cfg.BRAIN.INITIAL_FAMILY_ASSIGNMENT, SUPPORTED_INITIAL_FAMILY_ASSIGNMENTS)
     _require_choice("RESPAWN.MODE", cfg.RESPAWN.MODE, SUPPORTED_RESPAWN_MODES)
     _require_choice("RESPAWN.ANCHOR_PARENT_SELECTOR", cfg.RESPAWN.ANCHOR_PARENT_SELECTOR, SUPPORTED_ANCHOR_PARENT_SELECTORS)
@@ -138,6 +141,24 @@ def validate_runtime_config() -> None:
     )
 
     validate_ppo_reward_config()
+
+    if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET:
+        if str(cfg.PERCEPT.OBS_MODE) != "experimental_selfcentric_v1":
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_PRESET requires PERCEPT.OBS_MODE='experimental_selfcentric_v1'"
+            )
+        if not bool(cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS):
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_PRESET requires PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS=True"
+            )
+        if str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY) not in set(cfg.BRAIN.FAMILY_ORDER):
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_FAMILY must be present in BRAIN.FAMILY_ORDER"
+            )
+        if cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION:
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_PRESET requires EVOL.ENABLE_FAMILY_SHIFT_MUTATION=False to preserve one-family ownership semantics"
+            )
 
     if int(cfg.LOG.LOG_TICK_EVERY) <= 0:
         raise ValueError("LOG.LOG_TICK_EVERY must be positive")
@@ -269,4 +290,7 @@ def build_runtime(run_dir: str) -> SimulationRuntime:
         engine=engine,
         viewer=viewer,
     )
+
+
+__all__ = ["SimulationRuntime", "build_runtime", "setup_determinism", "validate_runtime_config"]
 

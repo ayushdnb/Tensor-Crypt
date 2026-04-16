@@ -18,6 +18,7 @@ from ..config_bridge import cfg
 
 
 _CANONICAL_RAY_KEYS = ("canonical_rays", "canonical_self", "canonical_context")
+_EXPERIMENTAL_KEYS = ("experimental_rays", "experimental_self", "experimental_context")
 _LEGACY_KEYS = ("rays", "state", "genome", "position", "context")
 
 
@@ -33,6 +34,8 @@ def validate_bloodline_family(family_id: str) -> str:
 
 def get_bloodline_color(family_id: str) -> tuple[int, int, int]:
     validate_bloodline_family(family_id)
+    if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET and family_id == str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY):
+        return tuple(int(channel) for channel in cfg.BRAIN.EXPERIMENTAL_BRANCH_COLOR)
     return tuple(int(channel) for channel in cfg.BRAIN.FAMILY_COLORS[family_id])
 
 
@@ -186,6 +189,43 @@ def extract_canonical_observation(obs: dict) -> tuple[torch.Tensor, torch.Tensor
     return canonical
 
 
+def extract_experimental_observation(obs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    missing = [key for key in _EXPERIMENTAL_KEYS if key not in obs]
+    if missing:
+        raise KeyError(f"Experimental bloodline MLP brain requires experimental observations: missing {missing}")
+
+    experimental = (obs["experimental_rays"], obs["experimental_self"], obs["experimental_context"])
+    experimental_rays, experimental_self, experimental_context = experimental
+    expected_rays_shape = (cfg.PERCEPT.NUM_RAYS, cfg.PERCEPT.EXPERIMENTAL_RAY_FEATURES)
+    if experimental_rays.dim() != 3 or tuple(experimental_rays.shape[1:]) != expected_rays_shape:
+        raise ValueError(
+            f"experimental_rays shape mismatch: expected (batch, {expected_rays_shape[0]}, {expected_rays_shape[1]}), got {tuple(experimental_rays.shape)}"
+        )
+    if experimental_self.dim() != 2 or experimental_self.shape[1] != cfg.PERCEPT.EXPERIMENTAL_SELF_FEATURES:
+        raise ValueError(
+            f"experimental_self shape mismatch: expected (batch, {cfg.PERCEPT.EXPERIMENTAL_SELF_FEATURES}), got {tuple(experimental_self.shape)}"
+        )
+    if experimental_context.dim() != 2 or experimental_context.shape[1] != cfg.PERCEPT.EXPERIMENTAL_CONTEXT_FEATURES:
+        raise ValueError(
+            f"experimental_context shape mismatch: expected (batch, {cfg.PERCEPT.EXPERIMENTAL_CONTEXT_FEATURES}), got {tuple(experimental_context.shape)}"
+        )
+    batch_size = experimental_rays.shape[0]
+    if experimental_self.shape[0] != batch_size or experimental_context.shape[0] != batch_size:
+        raise ValueError(
+            "Experimental observation batch mismatch: experimental_rays, experimental_self, and experimental_context must share the same batch dimension"
+        )
+    return experimental
+
+
+def extract_observation_for_contract(obs: dict, observation_contract: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    contract = str(observation_contract)
+    if contract == "canonical_v2":
+        return extract_canonical_observation(obs)
+    if contract == "experimental_selfcentric_v1":
+        return extract_experimental_observation(obs)
+    raise ValueError(f"Unsupported observation contract: {observation_contract}")
+
+
 @dataclass(frozen=True)
 class _FamilySpec:
     family_id: str
@@ -198,11 +238,15 @@ class _FamilySpec:
     split_ray_width: int
     split_scalar_width: int
     dropout: float
+    observation_contract: str
 
 
 def get_family_spec(family_id: str) -> _FamilySpec:
     family_id = validate_bloodline_family(family_id)
-    raw = cfg.BRAIN.FAMILY_SPECS[family_id]
+    if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET and family_id == str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY):
+        raw = cfg.BRAIN.EXPERIMENTAL_BRANCH_SPEC
+    else:
+        raw = cfg.BRAIN.FAMILY_SPECS[family_id]
     return _FamilySpec(
         family_id=family_id,
         hidden_widths=tuple(int(v) for v in raw.hidden_widths),
@@ -214,6 +258,7 @@ def get_family_spec(family_id: str) -> _FamilySpec:
         split_ray_width=int(raw.split_ray_width),
         split_scalar_width=int(raw.split_scalar_width),
         dropout=float(raw.dropout),
+        observation_contract=str(getattr(raw, "observation_contract", "canonical_v2")),
     )
 
 
@@ -281,8 +326,19 @@ class Brain(nn.Module):
         self.family_id = validate_bloodline_family(family_id or cfg.BRAIN.DEFAULT_FAMILY)
         self.spec = get_family_spec(self.family_id)
 
-        ray_dim = cfg.PERCEPT.NUM_RAYS * cfg.PERCEPT.CANONICAL_RAY_FEATURES
-        scalar_dim = cfg.PERCEPT.CANONICAL_SELF_FEATURES + cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES
+        if self.spec.observation_contract == "canonical_v2":
+            ray_features = cfg.PERCEPT.CANONICAL_RAY_FEATURES
+            self_features = cfg.PERCEPT.CANONICAL_SELF_FEATURES
+            context_features = cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES
+        elif self.spec.observation_contract == "experimental_selfcentric_v1":
+            ray_features = cfg.PERCEPT.EXPERIMENTAL_RAY_FEATURES
+            self_features = cfg.PERCEPT.EXPERIMENTAL_SELF_FEATURES
+            context_features = cfg.PERCEPT.EXPERIMENTAL_CONTEXT_FEATURES
+        else:
+            raise ValueError(f"Unsupported observation contract for family {self.family_id}: {self.spec.observation_contract}")
+
+        ray_dim = cfg.PERCEPT.NUM_RAYS * ray_features
+        scalar_dim = self_features + context_features
         self.input_dim = ray_dim + scalar_dim
 
         if self.spec.split_inputs:
@@ -355,16 +411,16 @@ class Brain(nn.Module):
         return self.input_proj(flat)
 
     def forward(self, obs: dict) -> tuple[torch.Tensor, torch.Tensor]:
-        canonical_rays, canonical_self, canonical_context = extract_canonical_observation(obs)
-        batch_size = canonical_rays.shape[0]
+        input_rays, input_self, input_context = extract_observation_for_contract(obs, self.spec.observation_contract)
+        batch_size = input_rays.shape[0]
         if batch_size == 0:
-            device = canonical_rays.device
+            device = input_rays.device
             return (
                 torch.empty(0, cfg.BRAIN.ACTION_DIM, device=device),
                 torch.empty(0, cfg.BRAIN.VALUE_DIM, device=device),
             )
 
-        x = self._encode_inputs(canonical_rays, canonical_self, canonical_context)
+        x = self._encode_inputs(input_rays, input_self, input_context)
         for block in self.trunk:
             x = block(x)
         x = self.head_norm(x)
@@ -390,6 +446,7 @@ class Brain(nn.Module):
             "residual": self.spec.residual,
             "gated": self.spec.gated,
             "split_inputs": self.spec.split_inputs,
+            "observation_contract": self.spec.observation_contract,
         }
 
 
