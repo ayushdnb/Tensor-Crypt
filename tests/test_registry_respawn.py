@@ -73,3 +73,44 @@ def test_extinction_path_raises_under_fail_run_policy(runtime_builder):
 
     with pytest.raises(RuntimeError, match="Population dropped below two live agents|binary reproduction is impossible"):
         runtime.engine.step()
+
+
+def test_experimental_branch_preset_forces_single_family_roots():
+    cfg.SIM.DEVICE = "cpu"
+    cfg.GRID.W = 12
+    cfg.GRID.H = 12
+    cfg.AGENTS.N = 6
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Mourndveil"
+
+    grid = Grid()
+    registry = Registry()
+    registry.spawn_initial_population(grid)
+
+    families = {registry.get_family_for_slot(idx) for idx in registry.get_alive_indices().tolist()}
+    assert families == {"House Mourndveil"}
+
+
+def test_experimental_branch_extinction_bootstrap_uses_preset_family(runtime_builder):
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+    cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION = False
+    cfg.RESPAWN.EXTINCTION_POLICY = "seed_bank_bootstrap"
+    cfg.RESPAWN.EXTINCTION_BOOTSTRAP_SPAWNS = 2
+
+    runtime = runtime_builder(seed=24, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    registry = runtime.registry
+
+    dead_slots = registry.get_alive_indices().tolist()
+    for idx in dead_slots:
+        registry.mark_dead(idx, runtime.grid)
+    runtime.evolution.process_deaths(dead_slots, runtime.ppo, death_tick=0)
+
+    runtime.engine.respawn_controller.step(0, registry, runtime.grid, runtime.data_logger)
+
+    alive_slots = registry.get_alive_indices().tolist()
+    assert len(alive_slots) == cfg.RESPAWN.EXTINCTION_BOOTSTRAP_SPAWNS
+    for slot_idx in alive_slots:
+        assert registry.get_family_for_slot(slot_idx) == "House Nocthar"

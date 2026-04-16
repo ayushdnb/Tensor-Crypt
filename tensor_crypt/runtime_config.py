@@ -712,6 +712,17 @@ class PerceptionConfig:
 
     #
     # CURRENT STATUS: active runtime knob.
+    # Observation-contract selector for additive perception branches.
+    # Supported values are `"canonical_v2"` and `"experimental_selfcentric_v1"`.
+    OBS_MODE: str = "canonical_v2"
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether the perception system should emit the additive experimental observation bundle.
+    # This may be enabled independently for debugging, but the experimental branch preset requires it.
+    RETURN_EXPERIMENTAL_OBSERVATIONS: bool = False
+
+    #
+    # CURRENT STATUS: active runtime knob.
     # Canonical per-ray feature count.
     # This is a schema-critical tensor dimension; changing it requires synchronized changes
     # throughout perception and brain code.
@@ -774,6 +785,19 @@ class PerceptionConfig:
     # Whether the perception system returns canonical observations by default.
     # Disabling this would push more pressure onto legacy compatibility paths.
     RETURN_CANONICAL_OBSERVATIONS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental per-ray feature count.
+    # This is the additive self-centric branch ray width; keep aligned with the experimental brain contract.
+    EXPERIMENTAL_RAY_FEATURES: int = 7
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental self-feature count.
+    EXPERIMENTAL_SELF_FEATURES: int = 11
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental context-feature count.
+    EXPERIMENTAL_CONTEXT_FEATURES: int = 1
 
 
 @dataclass
@@ -820,6 +844,11 @@ class BloodlineFamilySpec:
     # CURRENT STATUS: active runtime knob.
     # BRAIN.dropout operator knob.
     dropout: float = 0.0
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Observation contract consumed by this family topology.
+    # Supported values are `"canonical_v2"` and `"experimental_selfcentric_v1"`.
+    observation_contract: str = "canonical_v2"
 
 
 @dataclass
@@ -859,6 +888,38 @@ class BrainConfig:
     # Fallback family used when no explicit family is supplied.
     # It must be present in `FAMILY_ORDER`.
     DEFAULT_FAMILY: str = "House Nocthar"
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental single-family preset gate.
+    # When enabled, root seeds are forced onto `EXPERIMENTAL_BRANCH_FAMILY`, that family switches to
+    # the experimental self-centric observation contract, and viewer color is remapped to cyan.
+    EXPERIMENTAL_BRANCH_PRESET: bool = False
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Existing family slot that is repurposed by the experimental branch preset.
+    # It must already exist in `FAMILY_ORDER` so family-aware telemetry and viewer surfaces remain stable.
+    EXPERIMENTAL_BRANCH_FAMILY: str = "House Nocthar"
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Cyan family color used when the experimental branch preset is active.
+    EXPERIMENTAL_BRANCH_COLOR: List[int] = field(default_factory=lambda: [64, 224, 255])
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Lightweight split-input topology used by the experimental branch preset.
+    EXPERIMENTAL_BRANCH_SPEC: BloodlineFamilySpec = field(
+        default_factory=lambda: BloodlineFamilySpec(
+            hidden_widths=[96, 64, 64],
+            activation="silu",
+            normalization="pre",
+            residual=True,
+            gated=False,
+            split_inputs=True,
+            split_ray_width=64,
+            split_scalar_width=32,
+            dropout=0.00,
+            observation_contract="experimental_selfcentric_v1",
+        )
+    )
     #
     # CURRENT STATUS: active runtime knob.
     # Root-seed family assignment strategy.

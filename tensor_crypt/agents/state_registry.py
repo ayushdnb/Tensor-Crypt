@@ -125,6 +125,9 @@ class Registry:
         return uid
 
     def _select_root_family(self) -> str:
+        if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET:
+            return validate_bloodline_family(str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY))
+
         families = list(get_bloodline_families())
         mode = str(cfg.BRAIN.INITIAL_FAMILY_ASSIGNMENT).lower()
         if mode == "round_robin":

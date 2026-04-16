@@ -23,6 +23,14 @@ def _force_single_family_roots():
     }
 
 
+def _enable_experimental_branch(family_id: str = "House Nocthar"):
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = family_id
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+    cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION = False
+
+
 def _live_obs_and_slots(runtime):
     alive_indices = runtime.registry.get_alive_indices()
     alive_slots = [int(slot) for slot in alive_indices.detach().cpu().tolist()]
@@ -94,6 +102,30 @@ def test_validate_runtime_config_rejects_missing_torch_func_when_experimental_pa
     monkeypatch.setattr(runtime_module.importlib, "import_module", fake_import_module)
 
     with pytest.raises(ValueError, match="requires torch.func support"):
+        validate_runtime_config()
+
+
+def test_validate_runtime_config_rejects_experimental_branch_without_experimental_obs_mode():
+    cfg.SIM.DEVICE = "cpu"
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+    cfg.PERCEPT.OBS_MODE = "canonical_v2"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+    cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION = False
+
+    with pytest.raises(ValueError, match="requires PERCEPT.OBS_MODE='experimental_selfcentric_v1'"):
+        validate_runtime_config()
+
+
+def test_validate_runtime_config_rejects_experimental_branch_with_family_shift_enabled():
+    cfg.SIM.DEVICE = "cpu"
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+    cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION = True
+
+    with pytest.raises(ValueError, match="requires EVOL.ENABLE_FAMILY_SHIFT_MUTATION=False"):
         validate_runtime_config()
 
 @pytest.mark.skipif(not HAS_TORCH_FUNC, reason="torch.func unavailable")
@@ -201,6 +233,34 @@ def test_experimental_family_vmap_skips_mixed_singleton_families(runtime_builder
     torch.testing.assert_close(loop_values, fast_values, rtol=1e-6, atol=1e-6)
     assert runtime.engine.last_inference_path_stats["vmap_slots"] == 0
     assert runtime.engine.last_inference_path_stats["loop_slots"] == len(alive_slots)
+
+
+@pytest.mark.skipif(not HAS_TORCH_FUNC, reason="torch.func unavailable")
+def test_experimental_branch_family_vmap_forward_matches_loop(runtime_builder):
+    _enable_experimental_branch("House Nocthar")
+    runtime = runtime_builder(
+        seed=705,
+        agents=10,
+        walls=0,
+        hzones=0,
+        update_every=99,
+        batch_size=99,
+        mini_batches=1,
+        policy_noise=0.0,
+    )
+    obs, alive_slots = _live_obs_and_slots(runtime)
+
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = False
+    loop_logits, loop_values = runtime.engine._batched_brain_forward(obs, alive_slots)
+
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = True
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_MIN_BUCKET = 2
+    fast_logits, fast_values = runtime.engine._batched_brain_forward(obs, alive_slots)
+
+    torch.testing.assert_close(loop_logits, fast_logits, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(loop_values, fast_values, rtol=1e-6, atol=1e-6)
+    assert runtime.engine.last_inference_path_stats["vmap_slots"] == len(alive_slots)
+    assert runtime.engine.last_inference_path_stats["family_vmap_buckets"] == 1
 
 
 def test_ppo_gae_preallocation_matches_reference():

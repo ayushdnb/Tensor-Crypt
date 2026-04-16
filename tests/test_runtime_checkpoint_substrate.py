@@ -54,3 +54,42 @@ def test_checkpoint_validation_rejects_brain_topology_signature_mismatch(runtime
 
     with pytest.raises(ValueError, match="topology signature"):
         validate_runtime_checkpoint(bundle, cfg)
+
+
+def test_checkpoint_bundle_captures_experimental_branch_metadata(runtime_builder):
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+
+    runtime = runtime_builder(seed=204, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    bundle = capture_runtime_checkpoint(runtime)
+
+    assert bundle["metadata"]["observation_mode"] == "experimental_selfcentric_v1"
+    assert bundle["metadata"]["experimental_branch_preset"] is True
+    assert bundle["metadata"]["experimental_branch_family"] == "House Nocthar"
+
+
+def test_checkpoint_validation_rejects_observation_mode_mismatch(runtime_builder):
+    runtime = runtime_builder(seed=205, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    bundle = capture_runtime_checkpoint(runtime)
+
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+
+    with pytest.raises(ValueError, match="observation mode mismatch"):
+        validate_runtime_checkpoint(bundle, cfg)
+
+
+def test_checkpoint_validation_rejects_experimental_branch_family_mismatch(runtime_builder):
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+    cfg.PERCEPT.OBS_MODE = "experimental_selfcentric_v1"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = True
+
+    runtime = runtime_builder(seed=206, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    bundle = capture_runtime_checkpoint(runtime)
+
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Vespera"
+
+    with pytest.raises(ValueError, match="experimental branch family mismatch"):
+        validate_runtime_checkpoint(bundle, cfg)

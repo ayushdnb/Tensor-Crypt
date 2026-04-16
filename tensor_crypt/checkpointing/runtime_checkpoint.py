@@ -181,6 +181,9 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "device": str(cfg.SIM.DEVICE),
             "amp_enabled": bool(cfg.LOG.AMP),
             "config_fingerprint": _config_fingerprint({"config_snapshot": asdict(cfg)}),
+            "observation_mode": str(cfg.PERCEPT.OBS_MODE),
+            "experimental_branch_preset": bool(cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET),
+            "experimental_branch_family": str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY),
         },
     }
 
@@ -296,6 +299,31 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
         for key in ("brain_parent_uid", "trait_parent_uid", "anchor_parent_uid"):
             if key not in roles:
                 raise ValueError(f"Checkpoint parent roles missing {key} for UID {uid}")
+
+    saved_percept = bundle.get("config_snapshot", {}).get("PERCEPT", {})
+    saved_brain = bundle.get("config_snapshot", {}).get("BRAIN", {})
+    saved_metadata = bundle.get("metadata", {})
+    saved_obs_mode = str(saved_metadata.get("observation_mode", saved_percept.get("OBS_MODE", "canonical_v2")))
+    current_obs_mode = str(getattr(cfg_obj.PERCEPT, "OBS_MODE", "canonical_v2"))
+    if saved_obs_mode != current_obs_mode:
+        raise ValueError(
+            f"Checkpoint observation mode mismatch: bundle uses {saved_obs_mode!r}, current config uses {current_obs_mode!r}"
+        )
+
+    saved_experimental_preset = bool(saved_metadata.get("experimental_branch_preset", saved_brain.get("EXPERIMENTAL_BRANCH_PRESET", False)))
+    current_experimental_preset = bool(getattr(cfg_obj.BRAIN, "EXPERIMENTAL_BRANCH_PRESET", False))
+    if saved_experimental_preset != current_experimental_preset:
+        raise ValueError(
+            "Checkpoint experimental-branch preset mismatch between bundle and current config"
+        )
+
+    if saved_experimental_preset:
+        saved_experimental_family = str(saved_metadata.get("experimental_branch_family", saved_brain.get("EXPERIMENTAL_BRANCH_FAMILY", cfg_obj.BRAIN.DEFAULT_FAMILY)))
+        current_experimental_family = str(getattr(cfg_obj.BRAIN, "EXPERIMENTAL_BRANCH_FAMILY", cfg_obj.BRAIN.DEFAULT_FAMILY))
+        if saved_experimental_family != current_experimental_family:
+            raise ValueError(
+                f"Checkpoint experimental branch family mismatch: bundle uses {saved_experimental_family!r}, current config uses {current_experimental_family!r}"
+            )
 
     expected_topology_by_family: dict[str, list[list | tuple]] = {}
     for uid, metadata in bundle["brain_metadata_by_uid"].items():

@@ -14,6 +14,14 @@ def _make_canonical_obs(batch_size: int = 2):
     }
 
 
+def _make_experimental_obs(batch_size: int = 2):
+    return {
+        "experimental_rays": torch.zeros(batch_size, cfg.PERCEPT.NUM_RAYS, cfg.PERCEPT.EXPERIMENTAL_RAY_FEATURES),
+        "experimental_self": torch.zeros(batch_size, cfg.PERCEPT.EXPERIMENTAL_SELF_FEATURES),
+        "experimental_context": torch.zeros(batch_size, cfg.PERCEPT.EXPERIMENTAL_CONTEXT_FEATURES),
+    }
+
+
 def test_all_bloodline_families_instantiate_and_forward():
     cfg.SIM.DEVICE = "cpu"
     obs = _make_canonical_obs(batch_size=3)
@@ -136,3 +144,27 @@ def test_brain_rejects_canonical_batch_size_mismatch():
         assert "batch" in str(exc).lower()
     else:
         raise AssertionError("Brain forward accepted canonical observations with mismatched batch sizes")
+
+
+def test_experimental_branch_family_uses_experimental_observation_contract():
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+    cfg.PERCEPT.NUM_RAYS = 8
+    cfg.SIM.DEVICE = "cpu"
+
+    experimental_family = create_brain("House Nocthar").to("cpu")
+    canonical_family = create_brain("House Vespera").to("cpu")
+
+    assert experimental_family.describe_family()["observation_contract"] == "experimental_selfcentric_v1"
+    assert canonical_family.describe_family()["observation_contract"] == "canonical_v2"
+
+    logits, value = experimental_family(_make_experimental_obs(batch_size=3))
+    assert logits.shape == (3, cfg.BRAIN.ACTION_DIM)
+    assert value.shape == (3, cfg.BRAIN.VALUE_DIM)
+
+    try:
+        experimental_family(_make_canonical_obs(batch_size=3))
+    except KeyError as exc:
+        assert "experimental observations" in str(exc)
+    else:
+        raise AssertionError("Experimental branch family accepted canonical-only observations")

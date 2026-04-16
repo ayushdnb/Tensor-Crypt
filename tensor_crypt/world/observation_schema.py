@@ -7,6 +7,10 @@ import torch
 from ..config_bridge import cfg
 
 
+def _experimental_obs_enabled() -> bool:
+    return bool(cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS) or str(cfg.PERCEPT.OBS_MODE) == "experimental_selfcentric_v1"
+
+
 def normalize_from_bounds(values: torch.Tensor, lower: float, upper: float) -> torch.Tensor:
     lower_f = float(lower)
     upper_f = float(upper)
@@ -33,6 +37,50 @@ def distance_to_center_norm(positions: torch.Tensor, grid_w: int, grid_h: int) -
     return torch.clamp(distances / max_distance, 0.0, 1.0)
 
 
+def nearest_zone_distance_norm(positions: torch.Tensor, grid, *, positive: bool) -> torch.Tensor:
+    if positions.numel() == 0:
+        return torch.empty(0, device=positions.device, dtype=positions.dtype)
+
+    zones = [
+        zone
+        for zone in getattr(grid, "hzones", [])
+        if zone.get("active", True) and ((float(zone["rate"]) > 0.0) if positive else (float(zone["rate"]) < 0.0))
+    ]
+    if not zones:
+        return torch.ones(positions.shape[0], device=positions.device, dtype=positions.dtype)
+
+    device = positions.device
+    dtype = positions.dtype
+    px = positions[:, 0].unsqueeze(1)
+    py = positions[:, 1].unsqueeze(1)
+    x1 = torch.tensor([float(zone["x1"]) for zone in zones], device=device, dtype=dtype).unsqueeze(0)
+    x2 = torch.tensor([float(zone["x2"]) for zone in zones], device=device, dtype=dtype).unsqueeze(0)
+    y1 = torch.tensor([float(zone["y1"]) for zone in zones], device=device, dtype=dtype).unsqueeze(0)
+    y2 = torch.tensor([float(zone["y2"]) for zone in zones], device=device, dtype=dtype).unsqueeze(0)
+
+    zero = torch.zeros_like(px)
+    dx = torch.maximum(torch.maximum(x1 - px, px - x2), zero)
+    dy = torch.maximum(torch.maximum(y1 - py, py - y2), zero)
+    min_distance = torch.sqrt(dx.square() + dy.square()).min(dim=1).values
+    max_distance = max(float((grid.W - 1) ** 2 + (grid.H - 1) ** 2) ** 0.5, 1.0)
+    return torch.clamp(min_distance / max_distance, 0.0, 1.0)
+
+
+def adapt_canonical_to_experimental(canonical_rays: torch.Tensor) -> torch.Tensor:
+    return torch.stack(
+        [
+            canonical_rays[..., 1],  # hit_agent
+            canonical_rays[..., 2],  # hit_wall
+            canonical_rays[..., 3],  # distance_norm
+            canonical_rays[..., 4],  # path_zone_peak_rate_norm
+            canonical_rays[..., 5],  # terminal_zone_rate_norm
+            canonical_rays[..., 7],  # target_hp_ratio
+            canonical_rays[..., 6],  # target_mass_norm
+        ],
+        dim=-1,
+    )
+
+
 def build_empty_observation_batch(device: str, num_rays: int) -> dict:
     obs = {
         "rays": torch.empty(0, num_rays, cfg.PERCEPT.LEGACY_RAY_FEATURES, device=device),
@@ -45,6 +93,10 @@ def build_empty_observation_batch(device: str, num_rays: int) -> dict:
         obs["canonical_rays"] = torch.empty(0, num_rays, cfg.PERCEPT.CANONICAL_RAY_FEATURES, device=device)
         obs["canonical_self"] = torch.empty(0, cfg.PERCEPT.CANONICAL_SELF_FEATURES, device=device)
         obs["canonical_context"] = torch.empty(0, cfg.PERCEPT.CANONICAL_CONTEXT_FEATURES, device=device)
+    if _experimental_obs_enabled():
+        obs["experimental_rays"] = torch.empty(0, num_rays, cfg.PERCEPT.EXPERIMENTAL_RAY_FEATURES, device=device)
+        obs["experimental_self"] = torch.empty(0, cfg.PERCEPT.EXPERIMENTAL_SELF_FEATURES, device=device)
+        obs["experimental_context"] = torch.empty(0, cfg.PERCEPT.EXPERIMENTAL_CONTEXT_FEATURES, device=device)
     return obs
 
 
@@ -202,5 +254,30 @@ def build_observation_bundle(
         obs["canonical_rays"] = canonical_rays
         obs["canonical_self"] = canonical_self
         obs["canonical_context"] = canonical_context
+
+    if _experimental_obs_enabled():
+        experimental_rays = adapt_canonical_to_experimental(canonical_rays)
+        nearest_positive_zone_dist_norm = nearest_zone_distance_norm(positions, grid, positive=True)
+        nearest_negative_zone_dist_norm = nearest_zone_distance_norm(positions, grid, positive=False)
+        experimental_self = torch.stack(
+            [
+                hp_ratio,
+                hp_deficit_ratio,
+                mass_norm,
+                hp_max_norm,
+                vision_norm,
+                metabolism_norm,
+                current_zone_rate_norm,
+                age_norm,
+                dist_center_norm,
+                nearest_positive_zone_dist_norm,
+                nearest_negative_zone_dist_norm,
+            ],
+            dim=1,
+        )
+        experimental_context = alive_fraction.unsqueeze(1)
+        obs["experimental_rays"] = experimental_rays
+        obs["experimental_self"] = experimental_self
+        obs["experimental_context"] = experimental_context
     return obs
 

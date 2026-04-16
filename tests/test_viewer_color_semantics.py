@@ -91,6 +91,14 @@ def test_low_hp_color_modulation_on_preserves_existing_curve():
     assert get_bloodline_agent_color(family_id, 0.5) == _blend_rgb(shaded, base, 0.5)
 
 
+def test_experimental_branch_preset_overrides_only_target_family_base_color():
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = True
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY = "House Nocthar"
+
+    assert get_bloodline_base_color("House Nocthar") == tuple(cfg.BRAIN.EXPERIMENTAL_BRANCH_COLOR)
+    assert get_bloodline_base_color("House Vespera") == _EXPECTED_PALETTE["House Vespera"]
+
+
 def test_world_renderer_routes_agent_fill_through_canonical_color_helper(monkeypatch):
     fake_viewer = SimpleNamespace(
         cam=_FakeCam(),
