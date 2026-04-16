@@ -5,6 +5,7 @@ from tensor_crypt.app import runtime as runtime_module
 from tensor_crypt.app.runtime import validate_runtime_config
 from tensor_crypt.config_bridge import cfg
 from tensor_crypt.learning.ppo import PPO
+from tensor_crypt.runtime_config import apply_experimental_single_family_launch_defaults
 
 try:
     import torch.func  # noqa: F401
@@ -127,6 +128,22 @@ def test_validate_runtime_config_rejects_experimental_branch_with_family_shift_e
 
     with pytest.raises(ValueError, match="requires EVOL.ENABLE_FAMILY_SHIFT_MUTATION=False"):
         validate_runtime_config()
+
+
+def test_launch_defaults_force_single_family_experimental_mode():
+    cfg.PERCEPT.OBS_MODE = "canonical_v2"
+    cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS = False
+    cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET = False
+    cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION = True
+    cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE = False
+
+    apply_experimental_single_family_launch_defaults()
+
+    assert cfg.PERCEPT.OBS_MODE == "experimental_selfcentric_v1"
+    assert cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS is True
+    assert cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET is True
+    assert cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION is False
+    assert cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE is True
 
 @pytest.mark.skipif(not HAS_TORCH_FUNC, reason="torch.func unavailable")
 def test_experimental_family_vmap_forward_matches_loop_for_same_family_bucket(runtime_builder):
