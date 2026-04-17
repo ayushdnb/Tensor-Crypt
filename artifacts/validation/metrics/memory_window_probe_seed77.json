@@ -1,0 +1,74 @@
+{
+  "seed": 77,
+  "ticks": 512,
+  "sample_every": 64,
+  "run_dir": "artifacts\\validation\\logs\\memory_window_seed77\\run_20260417_213559",
+  "samples": [
+    {
+      "tick": 64,
+      "rss_mb": 752.6640625,
+      "alive": 12,
+      "buffered_rows": 153,
+      "optimizer_uids": 11,
+      "buffer_uids": 12
+    },
+    {
+      "tick": 128,
+      "rss_mb": 762.85546875,
+      "alive": 12,
+      "buffered_rows": 141,
+      "optimizer_uids": 10,
+      "buffer_uids": 11
+    },
+    {
+      "tick": 192,
+      "rss_mb": 821.60546875,
+      "alive": 12,
+      "buffered_rows": 236,
+      "optimizer_uids": 11,
+      "buffer_uids": 11
+    },
+    {
+      "tick": 256,
+      "rss_mb": 820.875,
+      "alive": 12,
+      "buffered_rows": 253,
+      "optimizer_uids": 11,
+      "buffer_uids": 12
+    },
+    {
+      "tick": 320,
+      "rss_mb": 821.52734375,
+      "alive": 12,
+      "buffered_rows": 280,
+      "optimizer_uids": 11,
+      "buffer_uids": 12
+    },
+    {
+      "tick": 384,
+      "rss_mb": 827.8046875,
+      "alive": 12,
+      "buffered_rows": 278,
+      "optimizer_uids": 12,
+      "buffer_uids": 12
+    },
+    {
+      "tick": 448,
+      "rss_mb": 823.453125,
+      "alive": 12,
+      "buffered_rows": 161,
+      "optimizer_uids": 11,
+      "buffer_uids": 12
+    },
+    {
+      "tick": 512,
+      "rss_mb": 817.24609375,
+      "alive": 12,
+      "buffered_rows": 235,
+      "optimizer_uids": 10,
+      "buffer_uids": 12
+    }
+  ],
+  "max_buffered_rows": 395,
+  "rss_delta_mb": 64.58203125
+}

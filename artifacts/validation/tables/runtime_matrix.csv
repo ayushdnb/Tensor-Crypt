@@ -1,0 +1,7 @@
+scenario,outcome,notes
+full_pytest,pass,"180 passed in 54.27s"
+checkpoint_benchmark_slice,pass,"9 passed in 9.29s"
+benchmark_cpu_256,pass,"256 ticks, 7.104 ticks/sec, rss_delta_mb=-19.109"
+benchmark_vmap_128,pass,"128 ticks, 8.160 ticks/sec, vmap_slots=2011"
+resume_chain_audit,pass,"5 cycles x 8 ticks, all signatures matched"
+soak_seed42_768,pass,"768 ticks, checkpoint validation every 64 ticks, no invariant/non-finite failure"

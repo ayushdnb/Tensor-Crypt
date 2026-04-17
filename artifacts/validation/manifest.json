@@ -1,0 +1,41 @@
+{
+  "created_on": "2026-04-17",
+  "branch": "validation/full-hardening-audit-20260417-a",
+  "status": "completed",
+  "evidence_order": [
+    "live_repository",
+    "tensor_crypt_validation_blueprint (2).md",
+    "evolution_txt_not_present"
+  ],
+  "artifacts": [
+    "progress_ledger.md",
+    "00_scope_and_repo_map.md",
+    "01_validation_strategy.md",
+    "02_mode_matrix.md",
+    "03_static_audit.md",
+    "04_runtime_matrix_results.md",
+    "05_fault_injection_results.md",
+    "06_soak_and_memory_results.md",
+    "07_convergence_and_stability_analysis.md",
+    "08_findings_and_fixes.md",
+    "09_remaining_risks_and_unproven_claims.md",
+    "10_reproduction_guide.md"
+  ],
+  "metrics": [
+    "metrics/benchmark_cpu_256.json",
+    "metrics/benchmark_vmap_128.json",
+    "metrics/memory_window_probe_seed77.json",
+    "metrics/resume_chain_audit.json"
+  ],
+  "tables": [
+    "tables/runtime_matrix.csv",
+    "tables/fault_injection.csv"
+  ],
+  "logs": [
+    "logs/benchmark_cpu_256",
+    "logs/benchmark_vmap_128",
+    "logs/memory_window_seed77",
+    "logs/resume_chain",
+    "logs/soak_seed42"
+  ]
+}
