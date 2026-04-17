@@ -2,6 +2,7 @@ from tensor_crypt.audit.final_validation import (
     run_catastrophe_repro_probe,
     run_determinism_probe,
     run_final_validation_suite,
+    run_resume_chain_probe,
     run_resume_consistency_probe,
     save_load_save_surface_signature,
 )
@@ -39,6 +40,18 @@ def test_catastrophe_repro_probe_passes(runtime_builder):
 
     report = run_catastrophe_repro_probe(factory, ticks=4)
     assert report["match"] is True
+
+
+def test_resume_chain_probe_passes(runtime_builder, tmp_path):
+    cfg.CATASTROPHE.AUTO_DYNAMIC_GAP_MIN_TICKS = 3
+    cfg.CATASTROPHE.AUTO_DYNAMIC_GAP_MAX_TICKS = 3
+
+    def factory():
+        return runtime_builder(seed=320, agents=6, walls=0, hzones=0)
+
+    report = run_resume_chain_probe(factory, tmp_path / "resume_chain", cycles=3, ticks_per_cycle=2)
+    assert report["match"] is True
+    assert len(report["cycle_reports"]) == 3
 
 
 def test_save_load_save_surface_signature_passes(runtime_builder, tmp_path):

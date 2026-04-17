@@ -73,9 +73,16 @@ def resolve_latest_checkpoint_bundle(path: str | Path) -> Path:
         pointer_path = pointer_path / cfg.CHECKPOINT.LATEST_POINTER_FILENAME
     pointer = load_latest_checkpoint_pointer(pointer_path)
 
-    bundle_path = Path(pointer["checkpoint_path"])
-    if not bundle_path.is_absolute():
-        bundle_path = (pointer_path.parent / bundle_path).resolve()
+    raw_bundle_path = Path(pointer["checkpoint_path"])
+    if raw_bundle_path.is_absolute():
+        bundle_path = raw_bundle_path
+    elif raw_bundle_path.exists():
+        # Older or relative-root pointers may already be resolvable from the
+        # current working directory. Prefer that exact path over rebasing it
+        # onto the pointer directory, which can duplicate parent segments.
+        bundle_path = raw_bundle_path.resolve()
+    else:
+        bundle_path = (pointer_path.parent / raw_bundle_path).resolve()
 
     manifest = validate_checkpoint_file_set(bundle_path)
     if int(pointer.get("tick", -1)) != int(manifest["tick"]):
@@ -195,11 +202,13 @@ def atomic_save_checkpoint_files(bundle_path: str | Path, bundle: dict) -> dict:
     if cfg.CHECKPOINT.WRITE_LATEST_POINTER:
         pointer_path = latest_pointer_path_for(bundle_path)
         temp_pointer = pointer_path.with_name(f"{pointer_path.name}.tmp")
+        relative_bundle_path = os.path.relpath(bundle_path, start=pointer_path.parent)
+        relative_manifest_path = os.path.relpath(manifest_path, start=pointer_path.parent)
         _write_json(
             temp_pointer,
             {
-                "checkpoint_path": str(bundle_path),
-                "manifest_path": str(manifest_path),
+                "checkpoint_path": str(relative_bundle_path),
+                "manifest_path": str(relative_manifest_path),
                 "tick": int(bundle["engine_state"]["tick"]),
                 "checkpoint_schema_version": int(bundle["checkpoint_schema_version"]),
                 "active_uid_count": int(validated_manifest["active_uid_count"]),

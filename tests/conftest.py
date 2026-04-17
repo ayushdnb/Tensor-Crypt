@@ -5,7 +5,9 @@
 import copy
 import dataclasses
 import os
+import shutil
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +33,19 @@ def reset_cfg():
     os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
     yield
     _restore_cfg(snapshot)
+
+
+@pytest.fixture
+def tmp_path():
+    """Repo-owned temp directory fixture that avoids Windows 0o700 tmpdir ACL issues."""
+    base_dir = ROOT / ".pytest_tmp_local"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    path = base_dir / f"case_{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture
@@ -96,4 +111,3 @@ def runtime_builder(tmp_path):
             pygame.quit()
     except Exception:
         pass
-

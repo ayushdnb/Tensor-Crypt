@@ -101,3 +101,43 @@ def test_benchmark_runtime_script_smoke(tmp_path):
     assert result["inference_path_stats"]["family_loop_buckets"] >= 4
     assert result["inference_path_stats"]["family_vmap_buckets"] == 0
     assert Path(result["run_dir"]).exists()
+
+
+def test_resume_chain_audit_script_smoke(tmp_path):
+    output_path = tmp_path / "resume_chain.json"
+    log_dir = tmp_path / "resume_chain_logs"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_resume_chain_audit.py",
+            "--cycles",
+            "2",
+            "--ticks-per-cycle",
+            "2",
+            "--width",
+            "10",
+            "--height",
+            "10",
+            "--agents",
+            "4",
+            "--walls",
+            "0",
+            "--hzones",
+            "0",
+            "--log-dir",
+            str(log_dir),
+            "--output",
+            str(output_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result["cycles"] == 2
+    assert result["ticks_per_cycle"] == 2
+    assert result["total_ticks"] == 4
+    assert result["match"] is True
+    assert len(result["cycle_reports"]) == 2

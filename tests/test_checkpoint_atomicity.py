@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from tensor_crypt.checkpointing import atomic_checkpoint
 from tensor_crypt.checkpointing import resolve_latest_checkpoint_bundle
 from tensor_crypt.checkpointing.runtime_checkpoint import (
     capture_runtime_checkpoint,
@@ -65,6 +66,56 @@ def test_resolve_latest_pointer_returns_published_bundle(runtime_builder, tmp_pa
 
     resolved = resolve_latest_checkpoint_bundle(tmp_path)
     assert resolved == checkpoint_path
+
+
+def test_resolve_latest_pointer_handles_relative_run_directory_paths(runtime_builder):
+    runtime = runtime_builder(seed=240, agents=4, walls=0, hzones=0)
+    bundle = capture_runtime_checkpoint(runtime)
+    checkpoint_dir = runtime.data_logger.run_dir
+    checkpoint_path = checkpoint_dir / "relative_pointer_checkpoint.pt"
+
+    save_runtime_checkpoint(checkpoint_path, bundle)
+
+    resolved = resolve_latest_checkpoint_bundle(checkpoint_dir)
+    assert resolved == checkpoint_path.resolve()
+
+    loaded = load_runtime_checkpoint(checkpoint_dir)
+    assert int(loaded["engine_state"]["tick"]) == int(bundle["engine_state"]["tick"])
+
+
+def test_resolve_latest_pointer_rejects_pointer_checksum_mismatch(runtime_builder, tmp_path):
+    runtime = runtime_builder(seed=241, agents=4, walls=0, hzones=0)
+    bundle = capture_runtime_checkpoint(runtime)
+    checkpoint_path = tmp_path / "checksum_pointer_checkpoint.pt"
+
+    save_runtime_checkpoint(checkpoint_path, bundle)
+
+    pointer_path = checkpoint_path.parent / "latest_checkpoint.json"
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    pointer["bundle_sha256"] = "0" * 64
+    pointer_path.write_text(json.dumps(pointer, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="checksum"):
+        resolve_latest_checkpoint_bundle(tmp_path)
+
+
+def test_atomic_checkpoint_save_cleans_up_temp_files_on_bundle_write_failure(runtime_builder, tmp_path, monkeypatch):
+    runtime = runtime_builder(seed=242, agents=4, walls=0, hzones=0)
+    bundle = capture_runtime_checkpoint(runtime)
+    checkpoint_path = tmp_path / "write_failure_checkpoint.pt"
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("forced torch.save failure")
+
+    monkeypatch.setattr(atomic_checkpoint.torch, "save", boom)
+
+    with pytest.raises(RuntimeError, match="forced torch.save failure"):
+        save_runtime_checkpoint(checkpoint_path, bundle)
+
+    assert checkpoint_path.exists() is False
+    assert checkpoint_path.with_suffix(".pt.manifest.json").exists() is False
+    leftover = list(tmp_path.glob(f"{atomic_checkpoint.cfg.CHECKPOINT.TEMPFILE_PREFIX}*"))
+    assert leftover == []
 
 
 def test_strict_manifest_validation_rejects_missing_manifest(runtime_builder, tmp_path):

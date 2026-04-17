@@ -34,5 +34,5 @@ namespaces = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --basetemp=.pytest_tmp_run"
+addopts = "-ra -p no:cacheprovider"
 cache_dir = ".pytest_cache_run"

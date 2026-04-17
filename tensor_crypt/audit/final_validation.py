@@ -154,6 +154,59 @@ def run_resume_consistency_probe(
     }
 
 
+def run_resume_chain_probe(
+    runtime_factory: Callable[[], object],
+    checkpoint_dir: str | Path,
+    *,
+    cycles: int = 3,
+    ticks_per_cycle: int = 4,
+) -> dict:
+    checkpoint_dir = Path(checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    resumed = runtime_factory()
+    cycle_reports = []
+    elapsed_ticks = 0
+
+    for cycle in range(1, int(cycles) + 1):
+        for _ in range(int(ticks_per_cycle)):
+            resumed.engine.step()
+        elapsed_ticks += int(ticks_per_cycle)
+
+        checkpoint_path = checkpoint_dir / f"resume_chain_cycle_{cycle:02d}.pt"
+        bundle = capture_runtime_checkpoint(resumed)
+        save_runtime_checkpoint(checkpoint_path, bundle)
+        loaded = load_runtime_checkpoint(checkpoint_path)
+
+        replacement = runtime_factory()
+        restore_runtime_checkpoint(replacement, loaded)
+        reference = runtime_factory()
+        for _ in range(elapsed_ticks):
+            reference.engine.step()
+
+        control_signature = _runtime_signature(reference)
+        resumed_signature = _runtime_signature(replacement)
+        cycle_reports.append(
+            {
+                "cycle": int(cycle),
+                "elapsed_ticks": int(elapsed_ticks),
+                "checkpoint_path": str(checkpoint_path),
+                "match": control_signature == resumed_signature,
+                "control": control_signature,
+                "resumed": resumed_signature,
+            }
+        )
+        resumed = replacement
+
+    return {
+        "cycles": int(cycles),
+        "ticks_per_cycle": int(ticks_per_cycle),
+        "total_ticks": int(cycles) * int(ticks_per_cycle),
+        "match": all(report["match"] for report in cycle_reports),
+        "cycle_reports": cycle_reports,
+    }
+
+
 def run_catastrophe_repro_probe(runtime_factory: Callable[[], object], *, ticks: int = 8) -> dict:
     runtime_a = runtime_factory()
 
