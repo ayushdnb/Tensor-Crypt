@@ -16,6 +16,84 @@ from ..population.reproduction import default_trait_latent, trait_values_from_la
 from .lineage_export import export_lineage_json
 
 
+_SPAWN_LEDGER_SCHEMA = pa.schema(
+    [
+        pa.field("child_uid", pa.int64()),
+        pa.field("birth_tick", pa.int64()),
+        pa.field("brain_parent_uid", pa.int64()),
+        pa.field("trait_parent_uid", pa.int64()),
+        pa.field("anchor_parent_uid", pa.int64()),
+        pa.field("parent_uid", pa.int64()),
+        pa.field("child_family", pa.string()),
+        pa.field("inherited_family_source", pa.string()),
+        pa.field("spawn_x", pa.int64()),
+        pa.field("spawn_y", pa.int64()),
+        pa.field("used_global_fallback", pa.bool_()),
+        pa.field("floor_recovery_flag", pa.bool_()),
+        pa.field("thresholds_suspended_flag", pa.bool_()),
+        pa.field("rare_mutation_flag", pa.bool_()),
+        pa.field("family_shift_flag", pa.bool_()),
+        pa.field("mutation_sigma_policy", pa.float64()),
+        pa.field("mutation_sigma_traits", pa.float64()),
+        pa.field("child_slot", pa.int64()),
+        pa.field("birth_slot", pa.int64()),
+        pa.field("brain_parent_slot", pa.int64()),
+        pa.field("trait_parent_slot", pa.int64()),
+        pa.field("anchor_parent_slot", pa.int64()),
+        pa.field("parent_slot", pa.int64()),
+        pa.field("brain_parent_family", pa.string()),
+        pa.field("trait_parent_family", pa.string()),
+        pa.field("parent_idx", pa.int64()),
+        pa.field("child_idx", pa.int64()),
+        pa.field("hp_max", pa.float64()),
+        pa.field("mass", pa.float64()),
+        pa.field("vision", pa.float64()),
+        pa.field("metabolism", pa.float64()),
+        pa.field("lineage_depth", pa.int64()),
+        pa.field("trait_budget", pa.float64()),
+        pa.field("alloc_hp", pa.float64()),
+        pa.field("alloc_mass", pa.float64()),
+        pa.field("alloc_vision", pa.float64()),
+        pa.field("alloc_metab", pa.float64()),
+        pa.field("trait_z_hp", pa.float64()),
+        pa.field("trait_z_mass", pa.float64()),
+        pa.field("trait_z_vision", pa.float64()),
+        pa.field("trait_z_metab", pa.float64()),
+        pa.field("value_hp_max", pa.float64()),
+        pa.field("value_mass", pa.float64()),
+        pa.field("value_vision", pa.float64()),
+        pa.field("value_metab", pa.float64()),
+        pa.field("value_alloc_hp", pa.float64()),
+        pa.field("value_alloc_mass", pa.float64()),
+        pa.field("value_alloc_vision", pa.float64()),
+        pa.field("value_alloc_metab", pa.float64()),
+        pa.field("value_budget", pa.float64()),
+        pa.field("mutation_rare_mutation", pa.bool_()),
+        pa.field("mutation_family_shift", pa.bool_()),
+        pa.field("mutation_placement_failed", pa.bool_()),
+        pa.field("mutation_extinction_bootstrap", pa.bool_()),
+        pa.field("mutation_parent_selection_blocked", pa.bool_()),
+        pa.field("mutation_local_parenting_enabled", pa.bool_()),
+        pa.field("mutation_local_parenting_used_global_fallback", pa.bool_()),
+        pa.field("mutation_local_parent_candidate_count", pa.int64()),
+        pa.field("mutation_cooldown_relaxed_brain", pa.bool_()),
+        pa.field("mutation_cooldown_relaxed_trait", pa.bool_()),
+        pa.field("mutation_cooldown_relaxed_anchor", pa.bool_()),
+        pa.field("placement_x", pa.int64()),
+        pa.field("placement_y", pa.int64()),
+        pa.field("placement_attempts", pa.int64()),
+        pa.field("placement_used_global_fallback", pa.bool_()),
+        pa.field("placement_failure_reason", pa.string()),
+        pa.field("placement_crowding_checked", pa.bool_()),
+        pa.field("placement_crowding_neighbor_count", pa.int64()),
+        pa.field("placement_crowding_policy_applied", pa.string()),
+        pa.field("identity_schema_version", pa.int64()),
+        pa.field("telemetry_schema_version", pa.int64()),
+        pa.field("reproduction_schema_version", pa.int64()),
+    ]
+)
+
+
 class DataLogger:
     """
     Research-grade run logger.
@@ -60,8 +138,10 @@ class DataLogger:
         self.family_summary_writer: Optional[pq.ParquetWriter] = None
         self.catastrophes_writer: Optional[pq.ParquetWriter] = None
 
-        self.birth_schema: Optional[pa.Schema] = None
-        self.genealogy_schema: Optional[pa.Schema] = None
+        # Spawn-event ledgers share one explicit schema because bootstrap rows
+        # and later parented births populate different optional surfaces.
+        self.birth_schema: Optional[pa.Schema] = _SPAWN_LEDGER_SCHEMA
+        self.genealogy_schema: Optional[pa.Schema] = _SPAWN_LEDGER_SCHEMA
         self.life_schema: Optional[pa.Schema] = None
         self.death_schema: Optional[pa.Schema] = pa.schema(
             [
@@ -147,13 +227,20 @@ class DataLogger:
     def get_buffered_row_count(self) -> int:
         return int(sum(len(rows) for rows in self._row_buffers.values()))
 
+    def _normalize_row_to_schema(self, row: dict, schema: pa.Schema, *, surface_name: str) -> dict:
+        allowed_columns = frozenset(schema.names)
+        unknown = sorted(set(row.keys()) - allowed_columns)
+        if unknown:
+            raise KeyError(f"{surface_name} emitted unknown spawn-ledger columns: {unknown}")
+        return {column_name: row.get(column_name) for column_name in schema.names}
+
     def _align_dataframe_to_schema(self, df: pd.DataFrame, schema: pa.Schema | None) -> pd.DataFrame:
         if schema is None:
             return df
         for column_name in schema.names:
             if column_name not in df.columns:
                 df[column_name] = None
-        return df
+        return df.loc[:, list(schema.names)]
 
     def _schema_versions(self) -> dict:
         return {
@@ -323,6 +410,11 @@ class DataLogger:
                 "telemetry_schema_version": cfg.SCHEMA.TELEMETRY_SCHEMA_VERSION,
                 "reproduction_schema_version": cfg.SCHEMA.REPRODUCTION_SCHEMA_VERSION,
             }
+            root_row = self._normalize_row_to_schema(
+                root_row,
+                self.birth_schema,
+                surface_name="bootstrap_initial_population",
+            )
             if cfg.TELEMETRY.LOG_BIRTH_LEDGER:
                 self._queue_rows("birth", [root_row])
             self._increment_tick_counter(self.birth_counts_by_tick, tick, 1)
@@ -440,6 +532,12 @@ class DataLogger:
         if cfg.MIGRATION.LOG_LEGACY_SLOT_FIELDS:
             payload["parent_idx"] = brain_parent_slot
             payload["child_idx"] = child_slot
+
+        payload = self._normalize_row_to_schema(
+            payload,
+            self.birth_schema,
+            surface_name="log_spawn_event",
+        )
 
         if child_uid != -1 and child_family is not None:
             self._increment_tick_counter(self.birth_counts_by_tick, tick, 1)
