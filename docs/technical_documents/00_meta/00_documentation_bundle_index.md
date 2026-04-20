@@ -20,8 +20,6 @@ The bundle has been audited against the current repository tree, with special re
 - utility scripts under `scripts/`
 - the current `pyproject.toml`, `requirements.txt`, and generated-artifact helpers
 
-Planning prompts and authoring notes preserved in `98_authoring_inputs/` are not implementation authority.
-
 ## Bundle Structure
 
 The published bundle is organized as follows.
@@ -60,9 +58,6 @@ docs/technical_documents/
     61_background_math_python_pytorch_and_rl_appendix.md
     62_equations_shapes_and_contract_reference.md
     63_contributor_documentation_truth_contract.md
-  98_authoring_inputs/
-    documentation_bundle_master_plan*.md
-    prompt_A*.md
   99_assets/
     diagrams/
     figure_sources/
@@ -147,7 +142,7 @@ These labels are defined more fully in [D02](./02_notation_glossary_and_shape_le
 
 ## Publication Notes
 
-- `98_authoring_inputs/` is retained for traceability, but it is not part of the public technical narrative.
+- Authoring prompts and drafting inputs are not shipped in this release line.
 - `99_assets/` currently provides reserved locations for diagrams, source tables, and figure inputs. The audit did not find a checked-in figure corpus that should be treated as present publication evidence.
 - The bundle intentionally prefers direct code and test references over speculative architecture prose.
 

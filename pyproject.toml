@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensor-crypt"
-version = "0.1.0"
-description = "Tensor-backed multi-agent simulation runtime with lineage-aware PPO"
+version = "1.0.0"
+description = "Five-family tensor-backed multi-agent simulation runtime with lineage-aware PPO"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

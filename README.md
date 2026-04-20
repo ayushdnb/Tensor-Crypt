@@ -1,77 +1,60 @@
-# Tensor Crypt
+# Tensor Crypt Five-Brain
 
-Tensor Crypt is a tensor-backed multi-agent simulation runtime with an interactive pygame-ce viewer. Agents live on a 2D grid with walls and heal zones, perceive the world through batched ray casting, act through per-agent policy/value networks, learn with PPO, reproduce through a binary parent model, and emit structured logs, checkpoints, and validation data.
+Tensor Crypt Five-Brain is the canonical multi-family release line of the Tensor Crypt simulation runtime. It is a tensor-backed multi-agent simulation with UID-owned identity, five bloodline-specific policy/value brain families, PPO learning, binary-parented reproduction, telemetry ledgers, runtime checkpoints, catastrophe controls, and an interactive `pygame-ce` viewer.
 
-The project name refers to the repository's dense tensor substrate and its emphasis on durable runtime records such as identity ledgers, lineage, telemetry, and checkpoints. It is a simulation and learning project, not a cryptography library.
+This is a simulation and learning project, not a cryptography library. The name refers to dense tensor state and durable runtime records such as identity ledgers, lineage, telemetry, and checkpoints.
 
-## Main capabilities
+## Release Identity
+
+- Default startup uses the five configured bloodline families.
+- Brain inputs use the canonical observation contract.
+- Slots are dense storage; UIDs own identity, lineage, PPO buffers, checkpoints, and telemetry.
+- The optional family-vmap inference path is disabled by default and is treated as a benchmark accelerator, not as the branch identity.
+- Root launch and config files are public compatibility surfaces over the canonical `tensor_crypt/` package.
+
+## Main Capabilities
 
 - Interactive viewer with pan, zoom, selection, overlays, and catastrophe controls
-- Procedural map generation with walls and heal zones
-- Slot-backed agent storage with canonical UID ownership and lineage tracking
-- Bloodline-aware MLP policy/value networks with multiple family topologies
+- Procedural grid world with walls and heal or harm zones
+- Five bloodline-aware MLP policy/value network families with distinct topology signatures
 - Batched perception with canonical observations and a legacy observation adapter
 - PPO training keyed by UID rather than by slot
-- Structured reproduction overlay doctrines: The Ashen Press, The Widow Interval, and The Bloodhold Radius
-- Structured telemetry in HDF5, Parquet, JSON, and PyTorch checkpoint files
-- Atomic checkpoint publishing with manifests, checksums, and a latest-pointer file
-- A pytest suite covering determinism, checkpoint restore, catastrophe scheduling, and runtime invariants
+- Structured reproduction overlays: The Ashen Press, The Widow Interval, and The Bloodhold Radius
+- HDF5, Parquet, JSON, and PyTorch checkpoint artifacts
+- Atomic checkpoint publishing with manifests, checksums, and a latest pointer
+- Pytest coverage for imports, runtime invariants, UID ownership, PPO, checkpoints, telemetry, viewer controls, and catastrophe scheduling
 
-## How the system works
-
-At startup the launcher seeds all random sources, creates a run directory, builds the runtime graph, generates a procedural map, spawns the initial population, and starts the viewer.
-
-Each tick follows the same broad order:
-
-1. Update catastrophe scheduling and apply temporary world modifiers.
-2. Build observations for all alive agents.
-3. Run each agent's brain to sample actions and value estimates.
-4. Resolve movement, collisions, contests, and environment effects.
-5. Compute PPO rewards and store transitions.
-6. Finalize deaths, evolve the population, handle respawn, and write telemetry.
-7. Optionally publish a runtime checkpoint.
-
-The runtime keeps dense tensors for speed, but identity is defined by monotonic UIDs. That distinction matters for lineage, checkpoints, and PPO ownership: slot reuse does not recycle agent identity or optimizer state.
-
-## Repository structure
+## Repository Structure
 
 ```text
 .
-├── config.py                  # Public config compatibility wrapper
-├── run.py                     # Primary launch entrypoint
-├── main.py                    # Alternate launch entrypoint
-├── tensor_crypt/              # Canonical implementation package
-│   ├── runtime_config.py      # Canonical config dataclasses and singleton cfg
-│   ├── agents/                # Brains and slot-backed registry
-│   ├── app/                   # Launch and runtime assembly
-│   ├── audit/                 # Determinism and checkpoint probes
-│   ├── checkpointing/         # Capture, restore, atomic publish, validation
-│   ├── learning/              # PPO
-│   ├── population/            # Evolution, reproduction, respawn
-│   ├── simulation/            # Engine and catastrophe manager
-│   ├── telemetry/             # Run paths, logger, lineage export
-│   ├── viewer/                # Pygame viewer
-│   └── world/                 # Grid, map generation, perception, physics
-├── engine/                    # Legacy compatibility imports
-├── viewer/                    # Legacy compatibility imports
-├── scripts/
-│   ├── benchmark_runtime.py   # Headless benchmark harness
-│   ├── run_soak_audit.py      # Headless soak audit
-│   └── dump_py_to_text.py     # Source dump helper
-├── docs/
-│   ├── architecture/          # Structure and compatibility notes
-│   ├── reports/               # Audit, validation, and patch reports
-│   └── technical_documents/   # Deep technical reference material
-└── tests/                     # Pytest suite
+|-- config.py                  # Public config compatibility wrapper
+|-- run.py                     # Primary launch entrypoint
+|-- main.py                    # Alternate launch entrypoint
+|-- tensor_crypt/              # Canonical implementation package
+|   |-- runtime_config.py      # Canonical config dataclasses and singleton cfg
+|   |-- agents/                # Brains and slot-backed registry
+|   |-- app/                   # Launch and runtime assembly
+|   |-- audit/                 # Determinism and checkpoint probes
+|   |-- checkpointing/         # Capture, restore, atomic publish, validation
+|   |-- learning/              # PPO
+|   |-- population/            # Evolution, reproduction, respawn
+|   |-- simulation/            # Engine and catastrophe manager
+|   |-- telemetry/             # Run paths, logger, lineage export
+|   |-- viewer/                # Pygame viewer
+|   `-- world/                 # Grid, map generation, perception, physics
+|-- engine/                    # Legacy compatibility imports
+|-- viewer/                    # Legacy compatibility imports
+|-- scripts/                   # Benchmark and soak harnesses
+|-- docs/                      # Architecture and technical documents
+`-- tests/                     # Pytest suite
 ```
 
-`tensor_crypt/` is the only implementation root. The repository root keeps a small public surface (`config.py`, `run.py`, `main.py`) plus compatibility-only `engine/` and `viewer/` packages for legacy imports.
+`tensor_crypt/` is the only implementation root. `run.py`, `main.py`, `config.py`, `engine/*`, and root `viewer/*` remain thin compatibility surfaces.
 
 ## Installation
 
-The repository ships with standard packaging metadata. An editable install keeps imports, scripts, and tests aligned with the checked-out tree.
-
-The viewer backend is intentionally pinned to the `pygame-ce` 2.5.x line. The code imports it as `pygame`, because `pygame-ce` provides the `pygame` module namespace. The checked-in manifests currently require `pygame-ce>=2.5.6,<2.6`, which matches the version line validated in this repository audit while still allowing patch-level updates within 2.5.x.
+The viewer backend is pinned to the `pygame-ce` 2.5.x line. The code imports it as `pygame`, because `pygame-ce` provides the `pygame` module namespace. The checked-in manifests require `pygame-ce>=2.5.6,<2.6`.
 
 ```bash
 python -m venv .venv
@@ -89,7 +72,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 ```
 
-## Quick start
+## Quick Start
 
 Run the simulation from the repository root:
 
@@ -97,150 +80,98 @@ Run the simulation from the repository root:
 python run.py
 ```
 
-`main.py` is equivalent:
+`main.py` and the installed `tensor-crypt` console script use the same canonical package entrypoint.
 
-```bash
-python main.py
-```
-
-Startup prints the selected device, the grid size, the configured population size, and the run directory. The launcher also writes `config.json` and `run_metadata.json` into that run directory before entering the viewer.
-
-## Viewer controls
-
-The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
-
-- `Esc`: quit
-- `Space`: pause / resume
-- `.`: advance one tick while paused
-- `+` / `-`: increase or decrease simulation speed
-- `WASD` or arrow keys: pan
-- Mouse wheel: zoom at cursor
-- Left click: select an agent or heal zone
-- `R`: toggle rays
-- `B`: toggle HP bars
-- `H`: toggle heal-zone overlay
-- `G`: toggle grid
-- `Shift+1`: toggle The Ashen Press runtime override
-- `Shift+2`: toggle The Widow Interval runtime override
-- `Shift+3`: toggle The Bloodhold Radius runtime override
-- `Shift+0`: clear reproduction doctrine runtime overrides
-- `F1`-`F12`: trigger catastrophes manually
-- `C`: clear active catastrophes
-- `Y`: cycle catastrophe mode
-- `U`: arm or disarm the catastrophe scheduler
-- `I`: toggle catastrophe panel
-- `O`: pause or resume the catastrophe scheduler
+Startup prints the selected device, population size, grid size, and run directory. The launcher writes `config.json` and `run_metadata.json` before entering the viewer.
 
 ## Configuration
 
-The public configuration entry surface is `config.py`, which re-exports the canonical dataclasses and singleton `cfg` from `tensor_crypt/runtime_config.py`.
+The public config surface is `config.py`, which re-exports the canonical dataclasses and singleton `cfg` from `tensor_crypt/runtime_config.py`.
 
-The file is organized by concern:
-
-- `SIM`: seed, device, run length, and top-level runtime posture
-- `GRID` and `MAPGEN`: world size, heal/harm-field composition, and procedural substrate
-- `AGENTS`, `TRAITS`, `RESPAWN`, `EVOL`: population size, latent trait budgets/clamps, binary-parent respawn, structured overlay doctrines, and mutation
-- `PERCEPT`: ray casting and observation layout
-- `BRAIN`: action/value dimensions, bloodline families, topology, and observation-compatibility policy
-- `PPO`: reward form, reward gating, rollout/update cadence, and UID ownership enforcement
-- `VIEW`: window size, supported startup overlays, and catastrophe UI
-- `LOG`, `TELEMETRY`, `CHECKPOINT`, `VALIDATION`: logging cadence, export cadence, checkpoint policy, and audit switches
-- `IDENTITY`, `SCHEMA`, `MIGRATION`, `CATASTROPHE`: UID invariant strictness, schema versions, legacy visibility flags, and catastrophe scheduling
-- `SIM.EXPERIMENTAL_FAMILY_VMAP_*`: opt-in same-family inference batching for benchmarking on headless workloads without changing the default per-brain ownership-preserving loop
-
-Treat the checked-in values as one concrete scenario, not as universal recommendations. Many settings trade off visibility, logging volume, checkpoint frequency, and runtime cost.
-
-The reproduction surface now includes a structured `RESPAWN.OVERLAYS` subtree. `CROWDING` configures The Ashen Press (crowding-gated reproduction overlay), `COOLDOWN` configures The Widow Interval (parent refractory reproduction overlay), `LOCAL_PARENT` configures The Bloodhold Radius (local lineage parent-selection overlay), and `VIEWER` controls HUD and hotkey exposure for the runtime override surface. When all three doctrines are disabled, the controller falls back to legacy binary-parent selection and placement behavior.
-
-The surface is intentionally narrower than older audit prose may imply. The dead and documentary-only knobs that were not wired have been removed. Two notable special cases remain: `TRAITS.INIT` is a legacy/template container retained for compatibility and documentation even though the live birth path uses latent decoding, and `TELEMETRY.ENABLE_DEEP_LEDGERS` only gates initial root-seed deep-ledger seeding rather than the broader telemetry stack.
-
-The runtime also rejects unsupported or misleading combinations during startup instead of accepting them silently. For example, the current code path requires:
+Important supported defaults for this release line:
 
 - `SIM.DTYPE == "float32"`
 - `AGENTS.SPAWN_MODE == "uniform"`
 - `TRAITS.METAB_FORM == "affine_combo"`
+- `BRAIN.INITIAL_FAMILY_ASSIGNMENT == "round_robin"`
 - `RESPAWN.MODE == "binary_parented"`
 - `PPO.OWNERSHIP_MODE == "uid_strict"`
 - `TELEMETRY.LINEAGE_EXPORT_FORMAT == "json"`
-- manifest strictness and latest-pointer features to run only on the manifest-publishing atomic path (`ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST`)
+- `SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE == False`
 
-## Outputs, logs, and checkpoints
+Unsupported guarded values fail during runtime validation rather than drifting silently.
 
-Each run creates a timestamped directory under `cfg.LOG.DIR`:
+## Viewer Controls
+
+- `Esc`: quit
+- `Space`: pause or resume
+- `.`: advance one tick while paused
+- `+` / `-`: change simulation speed
+- `WASD` or arrow keys: pan
+- Mouse wheel: zoom at cursor
+- Left click: select an agent or zone
+- `R`, `B`, `H`, `G`: toggle rays, HP bars, heal-zone overlay, and grid
+- `Shift+1`, `Shift+2`, `Shift+3`, `Shift+0`: reproduction doctrine overrides
+- `F1` through `F12`: trigger catastrophes manually
+- `C`, `Y`, `U`, `I`, `O`: catastrophe controls and panel toggles
+- `Alt+Enter`: fullscreen
+
+## Outputs
+
+Each run creates a timestamped directory under `cfg.LOG.DIR` containing:
 
 ```text
 logs/
-└── run_YYYYMMDD_HHMMSS/
-    ├── config.json
-    ├── run_metadata.json
-    ├── simulation_data.hdf5
-    ├── birth_ledger.parquet
-    ├── genealogy.parquet
-    ├── life_ledger.parquet
-    ├── death_ledger.parquet
-    ├── collisions.parquet
-    ├── ppo_events.parquet
-    ├── tick_summary.parquet
-    ├── family_summary.parquet
-    ├── catastrophes.parquet
-    ├── lineage_graph.json
-    ├── brains/
-    │   └── brains_tick_<tick>.pt
-    └── checkpoints/          # Created when periodic runtime checkpointing is enabled
+`-- run_YYYYMMDD_HHMMSS/
+    |-- config.json
+    |-- run_metadata.json
+    |-- simulation_data.hdf5
+    |-- birth_ledger.parquet
+    |-- genealogy.parquet
+    |-- life_ledger.parquet
+    |-- death_ledger.parquet
+    |-- collisions.parquet
+    |-- ppo_events.parquet
+    |-- tick_summary.parquet
+    |-- family_summary.parquet
+    |-- catastrophes.parquet
+    |-- lineage_graph.json
+    |-- brains/
+    |   `-- brains_tick_<tick>.pt
+    `-- checkpoints/
 ```
 
-`simulation_data.hdf5` stores agent snapshots, heatmaps, and identity datasets. The run directory is also created with `snapshots/`, `brains/`, and `heatmaps/` subdirectories; in the current logger, snapshots and heatmaps are written into the HDF5 file, while brain state files are written into `brains/`.
-
-Runtime checkpoints are controlled by `cfg.CHECKPOINT`. When periodic checkpointing is enabled, the engine publishes bundle files under the run directory's checkpoint folder using the configured filename prefix. In the current runtime, manifest files and `latest_checkpoint.json` are published only when `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST` are all true. On that path each checkpoint can include:
-
-- a `.pt` bundle
-- a manifest file with checksums and metadata
-- `latest_checkpoint.json` pointing to the most recent published checkpoint
-
-The checkpoint code validates schema versions, UID bindings, PPO state, and manifest metadata during load. Checkpoint bundles also persist reproduction doctrine runtime state: viewer-toggled doctrine overrides plus The Widow Interval cooldown ledgers are restored on resume instead of snapping back to config defaults.
+Runtime checkpoint manifests and `latest_checkpoint.json` are published only when `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST` are all true.
 
 ## Benchmarking
-
-The repository includes a headless benchmark harness:
 
 ```bash
 python scripts/benchmark_runtime.py --device cpu --ticks 128 --warmup-ticks 16 --output benchmark.json
 ```
 
-The benchmark configures a small runtime, executes a fixed number of ticks, and writes a JSON summary with elapsed time, ticks per second, memory use, final tick, final alive count, and the run directory.
-
-The harness also exposes the experimental inference fast path so you can compare the canonical loop against the family-local `torch.func` path under identical seeds and workloads:
+The benchmark harness can also exercise the optional family-vmap path for controlled comparisons:
 
 ```bash
-python scripts/benchmark_runtime.py --device cpu --ticks 128 --warmup-ticks 16 --experimental-family-vmap-inference --experimental-family-vmap-min-bucket 8 --output benchmark_experimental.json
+python scripts/benchmark_runtime.py --device cpu --ticks 128 --warmup-ticks 16 --experimental-family-vmap-inference --experimental-family-vmap-min-bucket 8 --output benchmark_vmap.json
 ```
 
-When enabled, the output JSON includes `experimental_family_vmap_inference`, `experimental_family_vmap_min_bucket`, and `inference_path_stats` so benchmark runs can distinguish loop-routed versus vmap-routed slots and buckets.
+Vmap counters in the benchmark output show whether any slot work actually used that path.
 
-## Testing and validation
+## Testing
 
-Run the test suite with:
+Run the suite with:
 
 ```bash
 python -m pytest
 ```
 
-The repository includes a substantial pytest suite. Based on the test names and helper modules, coverage includes:
+Focused checks for this release line:
 
-- deterministic seeding and repeatable runtime traces
-- public and compatibility imports
-- observation-shape checks and legacy observation bridging
-- bloodline family instantiation and topology checks
-- UID ownership, slot reuse, and PPO buffer ownership
-- reward gating behavior
-- checkpoint round-trip and restore validation
-- atomic checkpoint publish and manifest validation
-- catastrophe scheduling, replay, and viewer state
-- reproduction doctrine behavior, runtime hotkeys, and overlay checkpoint round-trips
-- lineage export and telemetry schema checks
-- benchmark smoke coverage
-
-There is also a programmatic validation package under `tensor_crypt.audit` with helpers for determinism probes, resume-consistency probes, save-load-save checks, catastrophe replay checks, and a combined final validation suite.
+```powershell
+python -m pytest tests\test_imports_and_compat.py tests\test_dependency_governance.py
+python -m pytest tests\test_bloodline_brains.py tests\test_perception.py tests\test_registry_respawn.py
+python -m pytest tests\test_runtime_checkpoint_substrate.py tests\test_uid_ppo_hardening.py tests\test_experimental_family_vmap_inference.py
+```
 
 ## License
 

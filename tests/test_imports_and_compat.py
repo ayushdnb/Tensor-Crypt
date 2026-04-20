@@ -43,7 +43,7 @@ def test_config_bridge_shares_root_cfg_instance():
     assert bridged_cfg is root_config.cfg
 
 
-def test_launch_entrypoints_apply_experimental_preset_and_run_viewer(monkeypatch):
+def test_launch_entrypoints_preserve_five_brain_defaults_and_run_viewer(monkeypatch):
     captured = {}
 
     class _DummyViewer:
@@ -62,10 +62,8 @@ def test_launch_entrypoints_apply_experimental_preset_and_run_viewer(monkeypatch
 
     def fake_build_runtime(run_dir):
         captured["run_dir_used"] = run_dir
-        captured["obs_mode"] = bridged_cfg.PERCEPT.OBS_MODE
-        captured["return_experimental_observations"] = bridged_cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS
-        captured["experimental_branch_preset"] = bridged_cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET
-        captured["family_shift_mutation"] = bridged_cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION
+        captured["family_order"] = tuple(bridged_cfg.BRAIN.FAMILY_ORDER)
+        captured["initial_family_assignment"] = bridged_cfg.BRAIN.INITIAL_FAMILY_ASSIGNMENT
         captured["family_vmap_inference"] = bridged_cfg.SIM.EXPERIMENTAL_FAMILY_VMAP_INFERENCE
         return _DummyRuntime()
 
@@ -79,10 +77,14 @@ def test_launch_entrypoints_apply_experimental_preset_and_run_viewer(monkeypatch
     assert captured["run_dir_created"] == "fake_run_dir"
     assert captured["run_dir_used"] == "fake_run_dir"
     assert captured["viewer_ran"] is True
-    assert captured["obs_mode"] == "experimental_selfcentric_v1"
-    assert captured["return_experimental_observations"] is True
-    assert captured["experimental_branch_preset"] is True
-    assert captured["family_shift_mutation"] is False
-    assert captured["family_vmap_inference"] is True
+    assert captured["family_order"] == (
+        "House Nocthar",
+        "House Vespera",
+        "House Umbrael",
+        "House Mourndveil",
+        "House Somnyr",
+    )
+    assert captured["initial_family_assignment"] == "round_robin"
+    assert captured["family_vmap_inference"] is False
     assert root_main_module.main is launch_main
     assert root_config_module.cfg is bridged_cfg
