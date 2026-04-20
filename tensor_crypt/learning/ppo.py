@@ -278,6 +278,20 @@ class PPO:
         return normalized
 
     @staticmethod
+    def _summarize_nonfinite_gradients(brain: nn.Module, *, max_items: int = 6) -> str:
+        names: list[str] = []
+        for name, param in brain.named_parameters():
+            grad = param.grad
+            if grad is None:
+                continue
+            if torch.isfinite(grad).all():
+                continue
+            names.append(name)
+            if len(names) >= max_items:
+                break
+        return ", ".join(names) if names else "<non-finite grad norm but no offending parameter names were isolated>"
+
+    @staticmethod
     def validate_serialized_buffer_payload(uid: int, payload: dict) -> None:
         schema_version = int(payload.get("buffer_schema_version", cfg.PPO.BUFFER_SCHEMA_VERSION))
         if schema_version != cfg.PPO.BUFFER_SCHEMA_VERSION:
@@ -657,6 +671,7 @@ class PPO:
             kl_div = 0.0
             grad_norm = 0.0
             optimizer_steps_this_update = 0
+            amp_nonfinite_grad_events = 0
             completed_epochs = 0
             policy_loss = torch.tensor(0.0, device=cfg.SIM.DEVICE)
             value_loss = torch.tensor(0.0, device=cfg.SIM.DEVICE)
@@ -709,8 +724,16 @@ class PPO:
                         grad_norm_tensor = torch.nn.utils.clip_grad_norm_(brain.parameters(), cfg.PPO.GRAD_NORM_CLIP)
                         grad_norm = float(grad_norm_tensor.detach().item()) if torch.is_tensor(grad_norm_tensor) else float(grad_norm_tensor)
                         if not math.isfinite(grad_norm):
+                            bad_grad_summary = self._summarize_nonfinite_gradients(brain)
+                            amp_nonfinite_grad_events += 1
+                            self.scaler.step(optimizer)
+                            self.scaler.update()
                             optimizer.zero_grad(set_to_none=True)
-                            raise ValueError(f"PPO update produced non-finite gradient norm for UID {uid}")
+                            print(
+                                f"[ppo] Warning: skipped AMP optimizer step for UID {uid} at tick {int(-1 if tick is None else tick)} "
+                                f"after non-finite gradient norm; offending grads: {bad_grad_summary}"
+                            )
+                            continue
                         self.scaler.step(optimizer)
                         self.scaler.update()
                     else:
@@ -730,6 +753,14 @@ class PPO:
 
                 if cfg.PPO.TARGET_KL > 0 and kl_div > cfg.PPO.TARGET_KL:
                     break
+
+            if optimizer_steps_this_update == 0 and amp_nonfinite_grad_events > 0:
+                brain.eval()
+                print(
+                    f"[ppo] Warning: deferred UID {uid} PPO update at tick {int(-1 if tick is None else tick)} "
+                    f"after {amp_nonfinite_grad_events} AMP overflow event(s); retaining buffer for retry."
+                )
+                continue
 
             training_state.ppo_updates += 1
             training_state.optimizer_steps += optimizer_steps_this_update
