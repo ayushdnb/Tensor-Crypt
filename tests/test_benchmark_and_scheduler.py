@@ -94,7 +94,7 @@ def test_benchmark_runtime_script_smoke(tmp_path):
     assert result["ticks"] == 4
     assert result["final_tick"] == 5
     assert result["ticks_per_sec"] > 0.0
-    assert result["experimental_family_vmap_inference"] is False
+    assert result["experimental_family_vmap_inference"] is True
     assert result["experimental_family_vmap_min_bucket"] == 8
     assert result["inference_path_stats"]["loop_slots"] == 16
     assert result["inference_path_stats"]["vmap_slots"] == 0

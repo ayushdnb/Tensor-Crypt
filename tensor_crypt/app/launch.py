@@ -1,5 +1,4 @@
-"""
-Thin application entrypoint.
+"""Single-brain-vmap launch entrypoint.
 
 This module keeps user-facing startup logic separate from the simulation
 subsystems. It owns only launch-time concerns:
@@ -26,7 +25,7 @@ def main() -> None:
 
     print(f"Device: {cfg.SIM.DEVICE}")
     print(
-        "Startup mode: experimental self-centric single-family preset "
+        "Startup mode: self-centric single-family vmap preset "
         f"({cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY})"
     )
     print(

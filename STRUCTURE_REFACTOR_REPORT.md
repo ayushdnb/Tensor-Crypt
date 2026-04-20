@@ -94,7 +94,7 @@ Completed validation:
 - import smoke for `config`, `main`, `run`, `tensor_crypt.*`, `engine.*`, and `viewer.*`
 - focused pytest smoke:
   - `tests/test_imports_and_compat.py`
-  - `tests/test_viewer_patch_package.py::test_camera_fit_clamp_and_zoom_bounds`
+  - `tests/test_viewer_interactions.py::test_camera_fit_clamp_and_zoom_bounds`
   - `tests/test_ppo_reward_surface.py::test_validate_runtime_config_rejects_invalid_reward_surface`
 - runtime/checkpoint slice under user-temp basetemp:
   - `tests/test_binary_reproduction.py::test_binary_birth_assigns_distinct_parent_roles`

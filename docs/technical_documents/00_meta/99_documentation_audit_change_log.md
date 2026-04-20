@@ -26,9 +26,9 @@ This file records the documentation verification and repair pass performed over 
   - `04_perception_brains_and_learning/`
   - `05_artifacts_validation_and_viewer/`
   - `06_boundaries_and_appendices/`
-- moved planning prompts and drafting inputs into `98_authoring_inputs/`
+- removed archived planning prompts and drafting inputs from the public release branch
 - reserved `99_assets/`, `99_assets/diagrams/`, `99_assets/figure_sources/`, and `99_assets/tables/` for reviewed figure materials
-- added `README.md` files to clarify that `98_authoring_inputs/` is archival and `99_assets/` is reserved rather than evidentiary
+- clarified that `99_assets/` is reserved rather than evidentiary
 
 ## Factual Corrections Made
 
@@ -64,7 +64,7 @@ This file records the documentation verification and repair pass performed over 
 - validation harnesses were described as evidence of testing rather than universal guarantees
 - checkpoint publication was described as conditional rather than implied for every run
 - `seed_bank_bootstrap` and `admin_spawn_defaults` extinction policies were not described as behaviorally distinct in the current controller because the implementation currently routes both through the same bootstrap-spawn loop
-- `98_authoring_inputs/` was explicitly marked archival rather than authoritative
+- archived authoring inputs were removed from the public release branch rather than treated as authoritative
 - `99_assets/` was explicitly marked reserved rather than treated as evidence of a reviewed figure corpus
 
 ## What Was Added for Clarity
@@ -102,7 +102,7 @@ These chapters had the highest concentration of stale planning-era path referenc
 
 - inventoried the markdown corpus under `docs/technical_documents/`
 - inventoried the main runtime modules and tests they describe
-- reorganized published chapters away from planning prompts
+- kept published chapters separated from planning prompts
 - ran targeted repository searches over:
   - identity substrate terms
   - checkpoint validation and manifest terms

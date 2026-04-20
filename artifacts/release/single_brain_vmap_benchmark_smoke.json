@@ -1,0 +1,26 @@
+{
+  "device": "cpu",
+  "ticks": 16,
+  "warmup_ticks": 2,
+  "elapsed_sec": 2.2376374999876134,
+  "ticks_per_sec": 7.150398578897864,
+  "rss_before_mb": 580.8359375,
+  "rss_after_mb": 661.25,
+  "rss_delta_mb": 80.4140625,
+  "cuda_peak_mb": 0.0,
+  "final_tick": 18,
+  "final_alive": 4,
+  "last_runtime_checkpoint_tick": -1,
+  "last_runtime_checkpoint_path": null,
+  "buffered_parquet_rows": 62,
+  "run_dir": "audit_tmp\\benchmark_logs\\run_20260420_150137",
+  "profile_top_cumulative": [],
+  "experimental_family_vmap_inference": true,
+  "experimental_family_vmap_min_bucket": 2,
+  "inference_path_stats": {
+    "loop_slots": 0,
+    "vmap_slots": 64,
+    "family_loop_buckets": 0,
+    "family_vmap_buckets": 16
+  }
+}

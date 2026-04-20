@@ -23,6 +23,7 @@ import torch
 
 from tensor_crypt.app.runtime import build_runtime, setup_determinism
 from tensor_crypt.config_bridge import cfg
+from tensor_crypt.runtime_config import apply_experimental_single_family_launch_defaults
 from tensor_crypt.telemetry.run_paths import create_run_directory
 
 
@@ -49,7 +50,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-dir", default="audit_tmp/benchmark_logs")
     parser.add_argument("--output", default="")
     parser.add_argument("--profile-top", type=int, default=0)
-    parser.add_argument("--experimental-family-vmap-inference", action="store_true")
+    parser.add_argument("--experimental-family-vmap-inference", dest="experimental_family_vmap_inference", action="store_true")
+    parser.add_argument("--disable-experimental-family-vmap-inference", dest="experimental_family_vmap_inference", action="store_false")
+    parser.set_defaults(experimental_family_vmap_inference=True)
     parser.add_argument("--experimental-family-vmap-min-bucket", type=int, default=8)
     return parser.parse_args()
 
@@ -62,6 +65,9 @@ def _configure_runtime(args: argparse.Namespace) -> None:
     cfg.SIM.SEED = args.seed
     cfg.SIM.DEVICE = device
     cfg.LOG.AMP = device == "cuda"
+    cfg.LOG.DIR = args.log_dir
+    apply_experimental_single_family_launch_defaults()
+    cfg.SIM.DEVICE = device
     cfg.LOG.DIR = args.log_dir
     cfg.GRID.W = args.width
     cfg.GRID.H = args.height

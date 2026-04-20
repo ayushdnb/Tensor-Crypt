@@ -19,6 +19,7 @@ import pygame
 from tensor_crypt.app.runtime import build_runtime, setup_determinism
 from tensor_crypt.audit.final_validation import run_resume_chain_probe
 from tensor_crypt.config_bridge import cfg
+from tensor_crypt.runtime_config import apply_experimental_single_family_launch_defaults
 from tensor_crypt.telemetry.run_paths import create_run_directory
 
 
@@ -41,6 +42,9 @@ def _configure_runtime(args: argparse.Namespace) -> None:
     cfg.SIM.SEED = args.seed
     cfg.SIM.DEVICE = "cpu"
     cfg.LOG.AMP = False
+    cfg.LOG.DIR = args.log_dir
+    apply_experimental_single_family_launch_defaults()
+    cfg.SIM.DEVICE = "cpu"
     cfg.LOG.DIR = args.log_dir
     cfg.GRID.W = args.width
     cfg.GRID.H = args.height

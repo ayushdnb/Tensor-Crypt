@@ -43,7 +43,7 @@ def test_config_bridge_shares_root_cfg_instance():
     assert bridged_cfg is root_config.cfg
 
 
-def test_launch_entrypoints_apply_experimental_preset_and_run_viewer(monkeypatch):
+def test_launch_entrypoints_apply_single_brain_vmap_preset_and_run_viewer(monkeypatch):
     captured = {}
 
     class _DummyViewer:
