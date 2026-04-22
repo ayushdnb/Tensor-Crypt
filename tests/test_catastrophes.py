@@ -78,6 +78,7 @@ def test_dynamic_scheduler_gap_bounds_are_respected(tmp_path):
 
 def test_static_scheduler_interval_and_round_robin_are_respected(tmp_path):
     cfg.CATASTROPHE.DEFAULT_MODE = "auto_static"
+    cfg.CATASTROPHE.DEFAULT_SCHEDULER_ARMED = True
     cfg.CATASTROPHE.AUTO_STATIC_INTERVAL_TICKS = 4
     cfg.CATASTROPHE.AUTO_STATIC_ORDERING_POLICY = "round_robin"
 

@@ -12,6 +12,7 @@ Operators, maintainers, and technical readers who need actionable procedures and
 - side panel controls
 - catastrophe hotkeys
 - reproduction overlay hotkeys
+- operator save/export actions
 - inspector fields
 
 ## What this document does not cover
@@ -36,6 +37,8 @@ The viewer owns the interactive render loop and UI state. It is not a passive sc
 | `Alt+Enter` | toggle fullscreen |
 | `Space` | pause / unpause |
 | `.` while paused | advance one tick |
+| `Ctrl+S` | publish a manual runtime checkpoint through the canonical engine path |
+| `Ctrl+E` | export the live selected agent's brain weights and metadata |
 | `+` / `-` | speed control when no H-zone is selected |
 | `R` | toggle rays |
 | `B` | toggle HP bars |
@@ -54,6 +57,8 @@ The side panel then shows either:
 - H-zone details
 - a prompt to click an agent or H-zone
 
+The side panel also shows a compact Actions block. Save checkpoint is always available. Export brain is enabled only when a live agent is selected.
+
 ## 4. HUD content
 
 The HUD can show:
@@ -69,14 +74,16 @@ The HUD can show:
 The side panel can show:
 - slot and UID
 - bloodline family
+- brain parameter count
 - age, birth tick, generation depth
 - brain/trait/anchor parent UIDs
 - HP and position
 - mass, vision, metabolism
-- brain parameter count
 - trait-budget allocations
 - PPO counters
 - catastrophe exposure summary
+
+UID, family, and parameter count are canonical minimum inspector fields and are not suppressed by migration-era visibility flags.
 
 ## 6. H-zone editing path
 
@@ -99,6 +106,12 @@ When viewer catastrophe controls are enabled:
 - `U` toggles scheduler armed state
 - `O` toggles scheduler pause
 - `I` toggles catastrophe panel visibility
+
+## 9. Operator save and export
+
+Manual save uses the existing runtime checkpoint publication path with save reason `manual_operator`. It preserves telemetry flushing, manifest/latest-pointer policy, retention, and session metadata update behavior.
+
+Selected-brain export writes the live selected agent's weights and metadata through the logger-managed `brains/selected_exports/uid_<uid>/` hierarchy. It does not export dead agents or write to the repository root.
 
 
 ## Read next

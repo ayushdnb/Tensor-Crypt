@@ -214,9 +214,12 @@ def build_run_metadata(session_metadata: dict | None = None) -> dict:
             "finalize_open_lives_on_session_close": bool(cfg.TELEMETRY.FINALIZE_OPEN_LIVES_ON_SESSION_CLOSE),
             "write_session_catalog": bool(cfg.TELEMETRY.WRITE_SESSION_CATALOG),
             "write_session_metadata": bool(cfg.TELEMETRY.WRITE_SESSION_METADATA),
+            "selected_brain_export_directory_name": str(cfg.TELEMETRY.SELECTED_BRAIN_EXPORT_DIRECTORY_NAME),
         },
         "viewer": {
             "show_bloodline_legend": cfg.VIEW.SHOW_BLOODLINE_LEGEND,
+            "show_operator_action_buttons": bool(cfg.VIEW.SHOW_OPERATOR_ACTION_BUTTONS),
+            "show_operator_action_status": bool(cfg.VIEW.SHOW_OPERATOR_ACTION_STATUS),
             "show_catastrophe_panel": cfg.VIEW.SHOW_CATASTROPHE_PANEL,
             "show_catastrophe_overlay": cfg.VIEW.SHOW_CATASTROPHE_OVERLAY,
         },

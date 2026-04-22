@@ -1370,6 +1370,17 @@ class ViewerConfig:
     SHOW_BLOODLINE_LEGEND: bool = True
     #
     # CURRENT STATUS: active runtime knob.
+    # Whether the side-panel inspector renders the compact operator action row.
+    # This exposes manual checkpoint save and selected-brain export actions without
+    # changing simulation semantics.
+    SHOW_OPERATOR_ACTION_BUTTONS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether the side-panel inspector renders the latest manual save/export
+    # success or failure message.
+    SHOW_OPERATOR_ACTION_STATUS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
     # Whether HP-based bloodline color modulation is active in the viewer.
     # When disabled, rendered agents stay on their clean base family color across all HP ratios.
     BLOODLINE_LOW_HP_COLOR_MODULATION_ENABLED: bool = True
@@ -1873,6 +1884,11 @@ class TelemetryConfig:
     # Whether extended inspector detail is exposed to the viewer.
     # Presentation/inspection enrichment only; it does not alter simulation semantics.
     ENABLE_VIEWER_INSPECTOR_ENRICHMENT: bool = True  # Toggle extended inspector details without affecting simulation semantics.
+    #
+    # CURRENT STATUS: active runtime artifact knob.
+    # Subdirectory beneath the logger-managed brains artifact tree used for
+    # deliberate selected-agent brain exports from the viewer/operator surface.
+    SELECTED_BRAIN_EXPORT_DIRECTORY_NAME: str = "selected_exports"
 
 
 @dataclass
@@ -1916,6 +1932,11 @@ class ValidationConfig:
     # CURRENT STATUS: active runtime knob.
     # Whether Stage-2 lifecycle/checkpoint/telemetry continuation probes are run by the final suite.
     ENABLE_STAGE2_LIFECYCLE_TESTS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether Stage-3 operator manual-save and selected-brain export probes are
+    # run by the final suite.
+    ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS: bool = True
     #
     # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
     # Audit basis: no direct `.VALIDATION.VALIDATION_STRICTNESS` runtime read was found in the code dump.

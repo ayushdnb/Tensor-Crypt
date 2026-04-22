@@ -330,6 +330,8 @@ class SidePanel:
         "Pause: SPACE",
         "Speed: +/- (no zone sel.)",
         "Step (Paused): .",
+        "Save checkpoint: Ctrl+S",
+        "Export selected brain: Ctrl+E",
         "Quit: ESC",
         "---",
         "Edit H-Zone Rate: +/-",
@@ -418,9 +420,117 @@ class SidePanel:
             surf.blit(self.text.render(line, metrics["control_size"], COLORS["text_dim"]), (x, y))
             y += metrics["controls_step"]
 
+    def _export_selected_enabled(self, state_data) -> bool:
+        slot_id = self.viewer.selected_slot_id
+        return slot_id is not None and slot_id in state_data.get("agent_map", {})
+
+    def _action_specs(self, state_data) -> list[dict]:
+        return [
+            {
+                "key": "save_checkpoint",
+                "label": "Save checkpoint",
+                "enabled": True,
+            },
+            {
+                "key": "export_selected_brain",
+                "label": "Export brain",
+                "enabled": self._export_selected_enabled(state_data),
+            },
+        ]
+
+    def _action_button_rects(self, x: int, y: int, max_width: int, metrics: dict, state_data) -> dict[str, pygame.Rect]:
+        specs = self._action_specs(state_data)
+        button_h = max(22, self.text.line_height(metrics["body_size"]) + 8)
+        gap = 6
+        rects = {}
+        if max_width >= 220:
+            left_w = (max_width - gap) // 2
+            right_w = max_width - gap - left_w
+            widths = (left_w, right_w)
+            cursor_x = x
+            for spec, width in zip(specs, widths):
+                rects[spec["key"]] = pygame.Rect(cursor_x, y, width, button_h)
+                cursor_x += width + gap
+            return rects
+
+        cursor_y = y
+        for spec in specs:
+            rects[spec["key"]] = pygame.Rect(x, cursor_y, max_width, button_h)
+            cursor_y += button_h + gap
+        return rects
+
+    def _draw_action_button(self, surf, rect: pygame.Rect, label: str, *, enabled: bool, metrics: dict) -> None:
+        if surf is None:
+            return
+        fill = COLORS["bar_bg"] if enabled else COLORS["side_bg"]
+        border = COLORS["text_success"] if enabled else COLORS["border"]
+        text_color = COLORS["text"] if enabled else COLORS["text_dark"]
+        pygame.draw.rect(surf, fill, rect)
+        pygame.draw.rect(surf, border, rect, 1)
+        label_surface = self.text.render(label, metrics["body_size"], text_color)
+        label_x = rect.x + max(4, (rect.width - label_surface.get_width()) // 2)
+        label_y = rect.y + max(2, (rect.height - label_surface.get_height()) // 2)
+        surf.blit(label_surface, (label_x, label_y))
+
+    def _draw_operator_feedback(self, surf, x, y, max_width, metrics: dict) -> int:
+        if not cfg.VIEW.SHOW_OPERATOR_ACTION_STATUS:
+            return y
+        feedback = self.viewer.operator_feedback
+        if not feedback:
+            return y
+        color = COLORS["text_success"] if feedback.get("success") else COLORS["text_warn"]
+        return self._blit_wrapped(
+            surf,
+            str(feedback.get("message", "")),
+            metrics["hint_size"],
+            color,
+            x,
+            y,
+            max_width,
+            line_gap=metrics["line_gap"],
+        )
+
+    def _draw_actions_block(self, surf, x, y, max_width, state_data, metrics: dict) -> int:
+        if not cfg.VIEW.SHOW_OPERATOR_ACTION_BUTTONS:
+            return self._draw_operator_feedback(surf, x, y, max_width, metrics)
+
+        y = self._draw_header_line(surf, "Actions", metrics["section_header_size"], COLORS["text_header"], x, y)
+        y += 3
+        rects = self._action_button_rects(x, y, max_width, metrics, state_data)
+        for spec in self._action_specs(state_data):
+            self._draw_action_button(
+                surf,
+                rects[spec["key"]],
+                spec["label"],
+                enabled=bool(spec["enabled"]),
+                metrics=metrics,
+            )
+        y = max(rect.bottom for rect in rects.values()) + 6
+        y = self._draw_operator_feedback(surf, x, y, max_width, metrics)
+        return y + metrics["section_gap"] - 2
+
+    def hit_test_action(self, pos: tuple[int, int], state_data) -> str | None:
+        if not cfg.VIEW.SHOW_OPERATOR_ACTION_BUTTONS or state_data is None:
+            return None
+        srect = self.viewer.layout.side_rect()
+        metrics = self._metrics()
+        content_rect = self._content_rect(srect, metrics)
+        if not content_rect.collidepoint(pos):
+            return None
+
+        y = content_rect.y - self.scroll_offset
+        y += self.text.line_height(metrics["section_header_size"]) + 3
+        rects = self._action_button_rects(content_rect.x, y, content_rect.width, metrics, state_data)
+        for spec in self._action_specs(state_data):
+            if rects[spec["key"]].collidepoint(pos) and spec["enabled"]:
+                return str(spec["key"])
+        return None
+
     def _compose_scroll_content(self, surf, x, y, max_width, state_data, metrics: dict) -> int:
         slot_id = self.viewer.selected_slot_id
         hzone_id = self.viewer.selected_hzone_id
+
+        y = self._draw_actions_block(surf, x, y, max_width, state_data, metrics)
 
         if slot_id is not None:
             if slot_id not in state_data["agent_map"]:
@@ -755,18 +865,15 @@ class SidePanel:
         if getattr(self.engine.logger, "get_catastrophe_exposure_summary", None) is not None:
             catastrophe_summary = self.engine.logger.get_catastrophe_exposure_summary(uid)
 
-        lines = []
-        if cfg.MIGRATION.VIEWER_SHOW_SLOT_AND_UID:
-            lines.append((f"Slot: {slot_id}  UID: {uid}", COLORS["text_dim"]))
-        else:
-            lines.append((f"UID: {uid}", COLORS["text_success"]))
-        if cfg.MIGRATION.VIEWER_SHOW_BLOODLINE:
-            lines.append((f"Bloodline: {family_id}", get_bloodline_base_color(family_id)))
+        lines = [
+            (f"UID: {uid}  Slot: {slot_id}", COLORS["text_success"]),
+            (f"Bloodline: {family_id}", get_bloodline_base_color(family_id)),
+            (f"Params: {param_count:,}", COLORS["text_dim"]),
+        ]
         lines.append((f"Age: {age}  Born: {birth_tick}  Gen: {lineage_depth}", COLORS["text_dim"]))
         lines.append((f"Parents B/T/A: {parent_roles['brain_parent_uid']} / {parent_roles['trait_parent_uid']} / {parent_roles['anchor_parent_uid']}", COLORS["text_dim"]))
         lines.append((f"HP: {hp:.1f} / {hp_max:.1f}  Pos: ({pos_x},{pos_y})", COLORS["text_dim"]))
         lines.append((f"Mass: {mass:.2f}  Vis: {vision:.1f}  Met: {metab:.4f}", COLORS["text_dim"]))
-        lines.append((f"Params: {param_count:,}", COLORS["text_dim"]))
         if cfg.TELEMETRY.ENABLE_VIEWER_INSPECTOR_ENRICHMENT:
             lines.append((f"Budget: {mapped['budget']:.3f}  Alloc H/M/V/B: {mapped['alloc_hp']:.2f}/{mapped['alloc_mass']:.2f}/{mapped['alloc_vision']:.2f}/{mapped['alloc_metab']:.2f}", COLORS["text_dim"]))
             lines.append((f"PPO env/upd/opt: {env_steps}/{ppo_updates}/{optimizer_steps}  Trunc: {truncated_rollouts}", COLORS["text_dim"]))

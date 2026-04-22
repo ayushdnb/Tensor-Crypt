@@ -58,13 +58,26 @@ Camera fit, zoom, and pan are also active diagnostic controls.
 The side panel can show:
 
 - selected agent identity and family information
+- selected agent trainable parameter count
+- manual checkpoint and selected-brain export actions
 - generation depth and parent-role information
 - physical and trait-like scalar information
 - catastrophe information
 - doctrine status information
 - control legend text
 
+For a live selected agent, UID, family, and parameter count are mandatory inspector facts. They are not hidden by migration-era visibility flags.
+
 When `cfg.TELEMETRY.ENABLE_VIEWER_INSPECTOR_ENRICHMENT` is true, additional inspection fields can be exposed without changing simulation semantics.
+
+## Operator Artifacts
+
+The viewer exposes two deliberate operator actions:
+
+- `Ctrl+S` and the side-panel Save action publish a manual checkpoint through `Engine.publish_runtime_checkpoint(...)` with save reason `manual_operator`.
+- `Ctrl+E` and the side-panel Export action export only the live selected agent's brain through `DataLogger.export_selected_brain(...)`.
+
+Selected-brain exports land below the logger-managed `brains/selected_exports/uid_<uid>/` hierarchy and include both a `.pt` weight bundle and a `.json` metadata sidecar.
 
 ## Catastrophe Diagnostics
 

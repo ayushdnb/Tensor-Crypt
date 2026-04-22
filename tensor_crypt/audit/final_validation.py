@@ -25,8 +25,13 @@ from ..checkpointing.runtime_checkpoint import (
     save_runtime_checkpoint,
 )
 from ..config_bridge import cfg
-from ..simulation.engine import SAVE_REASON_SCHEDULED_TICK, SAVE_REASON_SCHEDULED_WALLCLOCK, SAVE_REASON_SHUTDOWN
-from ..telemetry.run_paths import prepare_checkpoint_backed_session_plan
+from ..simulation.engine import (
+    SAVE_REASON_MANUAL_OPERATOR,
+    SAVE_REASON_SCHEDULED_TICK,
+    SAVE_REASON_SCHEDULED_WALLCLOCK,
+    SAVE_REASON_SHUTDOWN,
+)
+from ..telemetry.run_paths import prepare_checkpoint_backed_session_plan, session_metadata_path_for
 
 
 def _restore_cfg(snapshot) -> None:
@@ -340,6 +345,112 @@ def _checkpoint_manifests(run_dir: str | Path) -> list[dict]:
     return manifests
 
 
+def _path_is_under(path: str | Path, root: str | Path) -> bool:
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def run_stage3_manual_checkpoint_probe(runtime_factory: Callable[[], object]) -> dict:
+    snapshot = copy.deepcopy(cfg)
+    try:
+        cfg.CHECKPOINT.SAVE_EVERY_TICKS = 0
+        cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS = True
+        runtime = runtime_factory()
+        checkpoint_path = runtime.engine.publish_runtime_checkpoint(SAVE_REASON_MANUAL_OPERATOR, force=True)
+        checkpoint_path = None if checkpoint_path is None else Path(checkpoint_path)
+        manifests = _checkpoint_manifests(runtime.data_logger.run_dir)
+        bundle = load_runtime_checkpoint(checkpoint_path) if checkpoint_path is not None else {}
+        lifecycle = bundle.get("metadata", {}).get("runtime_lifecycle", {})
+        metadata_path = session_metadata_path_for(runtime.session_plan)
+        session_metadata = {}
+        if metadata_path.exists():
+            with metadata_path.open("r", encoding="utf-8") as handle:
+                session_metadata = json.load(handle)
+
+        matching_manifest = None
+        if checkpoint_path is not None:
+            for manifest in manifests:
+                if Path(manifest.get("_manifest_path", "")).name.startswith(checkpoint_path.name):
+                    matching_manifest = manifest
+                    break
+                if manifest.get("bundle_path") and Path(manifest["bundle_path"]).name == checkpoint_path.name:
+                    matching_manifest = manifest
+                    break
+        manifest_reason = None if matching_manifest is None else matching_manifest.get("save_reason")
+        return {
+            "match": (
+                checkpoint_path is not None
+                and checkpoint_path.exists()
+                and lifecycle.get("save_reason") == SAVE_REASON_MANUAL_OPERATOR
+                and manifest_reason == SAVE_REASON_MANUAL_OPERATOR
+                and session_metadata.get("last_checkpoint_reason") == SAVE_REASON_MANUAL_OPERATOR
+            ),
+            "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
+            "lifecycle_save_reason": lifecycle.get("save_reason"),
+            "manifest_save_reason": manifest_reason,
+            "session_last_checkpoint_reason": session_metadata.get("last_checkpoint_reason"),
+            "manifest_count": len(manifests),
+        }
+    finally:
+        _restore_cfg(snapshot)
+
+
+def run_stage3_selected_brain_export_probe(runtime_factory: Callable[[], object]) -> dict:
+    runtime = runtime_factory()
+    alive_slots = [int(slot_idx) for slot_idx in runtime.registry.get_alive_indices().detach().cpu().tolist()]
+    if not alive_slots:
+        return {
+            "match": False,
+            "reason": "runtime has no live selected-agent candidate",
+        }
+
+    slot_idx = alive_slots[0]
+    uid = int(runtime.registry.get_uid_for_slot(slot_idx))
+    family_id = runtime.registry.get_family_for_uid(uid)
+    brain = runtime.registry.brains[slot_idx]
+    result = runtime.data_logger.export_selected_brain(
+        registry=runtime.registry,
+        ppo=runtime.ppo,
+        slot_idx=slot_idx,
+        tick=int(runtime.engine.tick),
+    )
+    pt_path = Path(result["path"])
+    json_path = Path(result["metadata_path"])
+    with json_path.open("r", encoding="utf-8") as handle:
+        metadata = json.load(handle)
+    payload = torch.load(pt_path, map_location="cpu", weights_only=False)
+
+    expected_topology = [
+        [str(name), [int(dim) for dim in shape]]
+        for name, shape in brain.get_topology_signature()
+    ]
+    return {
+        "match": (
+            pt_path.exists()
+            and json_path.exists()
+            and _path_is_under(pt_path, runtime.data_logger.brains_dir)
+            and _path_is_under(json_path, runtime.data_logger.brains_dir)
+            and metadata.get("uid") == uid
+            and metadata.get("slot_at_export") == slot_idx
+            and metadata.get("family_id") == family_id
+            and metadata.get("parameter_count") == int(brain.get_param_count())
+            and metadata.get("topology_signature") == expected_topology
+            and payload.get("metadata", {}).get("uid") == uid
+            and "state_dict" in payload
+        ),
+        "uid": uid,
+        "slot_idx": slot_idx,
+        "family_id": family_id,
+        "export_path": str(pt_path),
+        "metadata_path": str(json_path),
+        "under_brains_dir": _path_is_under(pt_path, runtime.data_logger.brains_dir),
+        "metadata": metadata,
+    }
+
+
 def run_wallclock_autosave_probe(runtime_factory: Callable[[], object]) -> dict:
     snapshot = copy.deepcopy(cfg)
     try:
@@ -560,6 +671,7 @@ def run_final_validation_suite(
             "save_load_save": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "resume_policy": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "stage2_lifecycle": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
+            "stage3_operator_artifacts": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "all_passed": True,
             "skipped": True,
         }
@@ -571,6 +683,7 @@ def run_final_validation_suite(
         "save_load_save": _skipped_check("ENABLE_SAVE_LOAD_SAVE_TESTS is disabled"),
         "resume_policy": _skipped_check("ENABLE_RESUME_POLICY_TESTS is disabled"),
         "stage2_lifecycle": _skipped_check("ENABLE_STAGE2_LIFECYCLE_TESTS is disabled"),
+        "stage3_operator_artifacts": _skipped_check("ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS is disabled"),
     }
 
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -613,6 +726,14 @@ def run_final_validation_suite(
             "resume_telemetry_continuation": continuation,
             "fork_vs_continue_policy": fork_policy,
         }
+    if cfg.VALIDATION.ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS:
+        manual_checkpoint = run_stage3_manual_checkpoint_probe(runtime_factory)
+        selected_brain_export = run_stage3_selected_brain_export_probe(runtime_factory)
+        report["stage3_operator_artifacts"] = {
+            "match": bool(manual_checkpoint["match"] and selected_brain_export["match"]),
+            "manual_checkpoint": manual_checkpoint,
+            "selected_brain_export": selected_brain_export,
+        }
 
     enabled_results = []
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -636,6 +757,8 @@ def run_final_validation_suite(
         enabled_results.append(bool(report["resume_policy"]["match"]))
     if cfg.VALIDATION.ENABLE_STAGE2_LIFECYCLE_TESTS:
         enabled_results.append(bool(report["stage2_lifecycle"]["match"]))
+    if cfg.VALIDATION.ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS:
+        enabled_results.append(bool(report["stage3_operator_artifacts"]["match"]))
     report["all_passed"] = all(enabled_results) if enabled_results else True
     return report
 

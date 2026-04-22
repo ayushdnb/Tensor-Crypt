@@ -10,6 +10,8 @@ from .final_validation import (
     run_resume_consistency_probe,
     run_shutdown_checkpoint_probe,
     run_stage1_resume_policy_probe,
+    run_stage3_manual_checkpoint_probe,
+    run_stage3_selected_brain_export_probe,
     run_wallclock_autosave_probe,
     save_load_save_surface_signature,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "run_resume_consistency_probe",
     "run_shutdown_checkpoint_probe",
     "run_stage1_resume_policy_probe",
+    "run_stage3_manual_checkpoint_probe",
+    "run_stage3_selected_brain_export_probe",
     "run_wallclock_autosave_probe",
     "save_load_save_surface_signature",
 ]

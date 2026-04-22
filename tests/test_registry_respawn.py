@@ -63,6 +63,7 @@ def test_respawn_inherits_parent_brain_for_slot_without_existing_brain(runtime_b
 
 
 def test_extinction_path_raises_under_fail_run_policy(runtime_builder):
+    cfg.RESPAWN.EXTINCTION_POLICY = "fail_run"
     runtime = runtime_builder(seed=23, width=10, height=10, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
     registry = runtime.registry
 

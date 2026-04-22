@@ -87,6 +87,13 @@ Periodic brain snapshots are written under:
 
 This is separate from runtime checkpoints. Brain snapshots do not by themselves encode the full runtime, registry, and optimizer substrate needed for faithful resume.
 
+Operator-selected live brain exports are written under:
+
+- `brains/selected_exports/uid_<uid>/uid_<uid>_tick_<tick>_slot_<slot>_<family>.pt`
+- `brains/selected_exports/uid_<uid>/uid_<uid>_tick_<tick>_slot_<slot>_<family>.json`
+
+These exports are deliberate inspection artifacts for the live selected agent. They carry weights plus identity, family, topology, lineage, session, and PPO-state metadata, but they are not full runtime checkpoints.
+
 ## Buffering and Flush Behavior
 
 The logger buffers Parquet rows and flushes by ledger when `cfg.TELEMETRY.PARQUET_BATCH_ROWS` is reached or when the logger is closed. This is a performance and visibility tradeoff rather than a semantic change to the ledger schema.
@@ -104,6 +111,7 @@ Readers should carry forward the following:
 - `genealogy.parquet` is a compatibility alias surface
 - lineage export is UID-based
 - brain snapshots are not full runtime checkpoints
+- selected-brain exports are logger-owned artifacts under `brains/selected_exports/`, not repository-root files
 
 ## Cross References
 

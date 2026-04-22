@@ -113,7 +113,7 @@ def _runtime_lifecycle_metadata(runtime) -> dict:
     engine = runtime.engine
     logger = getattr(runtime, "data_logger", None) or getattr(engine, "logger", None)
     session_plan = getattr(logger, "session_plan", None)
-    save_reason = getattr(engine, "_checkpoint_capture_reason", None) or "manual_future_reserved"
+    save_reason = getattr(engine, "_checkpoint_capture_reason", None) or "manual_unspecified"
     capture_path = getattr(engine, "_checkpoint_capture_path", None)
     if not cfg.CHECKPOINT.SAVE_REASON_LOGGING_ENABLED:
         save_reason = None

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import time
 from typing import Optional
 
 import h5py
@@ -473,6 +475,136 @@ class DataLogger:
             "schema_versions": self._schema_versions(),
         }
         torch.save(payload, str(self.brains_dir / f"brains_tick_{tick}.pt"))
+
+    @staticmethod
+    def _slug_for_artifact(value: object) -> str:
+        slug = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value)).strip("_")
+        while "__" in slug:
+            slug = slug.replace("__", "_")
+        return slug or "unknown"
+
+    @staticmethod
+    def _clone_state_dict_cpu(state_dict: dict) -> dict:
+        return {
+            name: tensor.detach().cpu().clone() if torch.is_tensor(tensor) else tensor
+            for name, tensor in state_dict.items()
+        }
+
+    def _selected_brain_export_paths(self, *, uid: int, slot_idx: int, tick: int, family_id: str) -> tuple[Path, Path, str]:
+        export_root = self.brains_dir / str(cfg.TELEMETRY.SELECTED_BRAIN_EXPORT_DIRECTORY_NAME) / f"uid_{int(uid):08d}"
+        export_root.mkdir(parents=True, exist_ok=True)
+
+        family_slug = self._slug_for_artifact(family_id)
+        basename = f"uid_{int(uid):08d}_tick_{int(tick):08d}_slot_{int(slot_idx):04d}_{family_slug}"
+        for suffix_idx in range(1000):
+            suffix = "" if suffix_idx == 0 else f"_{suffix_idx:02d}"
+            candidate_base = f"{basename}{suffix}"
+            pt_path = export_root / f"{candidate_base}.pt"
+            json_path = export_root / f"{candidate_base}.json"
+            if not pt_path.exists() and not json_path.exists():
+                return pt_path, json_path, candidate_base
+        raise RuntimeError(f"Unable to allocate selected-brain export path for UID {uid} at tick {tick}")
+
+    def export_selected_brain(self, *, registry, ppo, slot_idx: int, tick: int) -> dict:
+        """Export the live selected agent brain through the logger-owned artifact tree."""
+        slot_idx = int(slot_idx)
+        if slot_idx < 0 or slot_idx >= int(registry.max_agents):
+            raise ValueError(f"Selected slot {slot_idx} is outside the registry slot range")
+
+        uid = int(registry.get_uid_for_slot(slot_idx))
+        alive = uid != -1 and bool(registry.data[registry.ALIVE, slot_idx].item() > 0.5)
+        if not alive or not registry.is_uid_active(uid):
+            raise ValueError(f"Selected slot {slot_idx} does not contain a live UID-owned agent")
+
+        brain = registry.brains[slot_idx]
+        if brain is None:
+            raise ValueError(f"Selected live slot {slot_idx} has no brain to export")
+
+        family_id = registry.get_family_for_uid(uid)
+        lifecycle = registry.uid_lifecycle[uid]
+        parent_roles = registry.get_parent_roles_for_uid(uid)
+        training_state = getattr(ppo, "training_state_by_uid", {}).get(uid) if ppo is not None else None
+        buffers_by_uid = getattr(ppo, "buffers_by_uid", {}) if ppo is not None else {}
+        optimizers_by_uid = getattr(ppo, "optimizers_by_uid", {}) if ppo is not None else {}
+        buffer = buffers_by_uid.get(uid)
+        describe_family = getattr(brain, "describe_family", None)
+        family_description = describe_family() if callable(describe_family) else {}
+
+        topology_signature = [
+            [str(name), [int(dim) for dim in shape]]
+            for name, shape in brain.get_topology_signature()
+        ]
+        metadata = {
+            "format": "tensor_crypt_selected_brain_export_v1",
+            "export_schema_version": 1,
+            "uid": uid,
+            "slot_at_export": slot_idx,
+            "alive_at_export": True,
+            "family_id": family_id,
+            "parameter_count": int(brain.get_param_count()),
+            "topology_signature": topology_signature,
+            "export_tick": int(tick),
+            "birth_tick": int(lifecycle.birth_tick),
+            "lineage_depth": int(registry.uid_generation_depth.get(uid, 0)),
+            "brain_parent_uid": int(parent_roles["brain_parent_uid"]),
+            "trait_parent_uid": int(parent_roles["trait_parent_uid"]),
+            "anchor_parent_uid": int(parent_roles["anchor_parent_uid"]),
+            "observation_contract": family_description.get("observation_contract"),
+            "family_description": family_description,
+            "session_id": int(self.session_id),
+            "session_label": self.session_label,
+            "session_dir": str(self.session_dir),
+            "telemetry_dir": str(self.telemetry_dir),
+            "lineage_root_dir": str(self.session_plan.lineage_root_dir),
+            "lineage_root_identifier": Path(self.session_plan.lineage_root_dir).name,
+            "has_live_optimizer_state": uid in optimizers_by_uid,
+            "has_live_buffer_state": uid in buffers_by_uid,
+            "live_buffer_transition_count": 0 if buffer is None else int(len(buffer)),
+            "ppo_updates": 0 if training_state is None else int(training_state.ppo_updates),
+            "optimizer_steps": 0 if training_state is None else int(training_state.optimizer_steps),
+            "env_steps": 0 if training_state is None else int(training_state.env_steps),
+            "truncated_rollouts": 0 if training_state is None else int(training_state.truncated_rollouts),
+            "schema_versions": self._schema_versions(),
+            "ppo_buffer_schema_version": int(cfg.PPO.BUFFER_SCHEMA_VERSION),
+            "exported_at_wallclock_unix": float(time.time()),
+        }
+
+        pt_path, json_path, basename = self._selected_brain_export_paths(
+            uid=uid,
+            slot_idx=slot_idx,
+            tick=int(tick),
+            family_id=family_id,
+        )
+        payload = {
+            "format": metadata["format"],
+            "export_schema_version": metadata["export_schema_version"],
+            "metadata": metadata,
+            "state_dict": self._clone_state_dict_cpu(brain.state_dict()),
+        }
+        torch.save(payload, str(pt_path))
+        with json_path.open("w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+        if self.session_plan is not None:
+            update_session_metadata(
+                self.session_plan,
+                last_selected_brain_export_uid=uid,
+                last_selected_brain_export_tick=int(tick),
+                last_selected_brain_export_path=str(pt_path),
+                last_selected_brain_export_metadata_path=str(json_path),
+            )
+
+        return {
+            "status": "ok",
+            "uid": uid,
+            "slot_idx": slot_idx,
+            "tick": int(tick),
+            "path": str(pt_path),
+            "metadata_path": str(json_path),
+            "basename": basename,
+            "metadata": metadata,
+        }
 
     def log_spawn_event(
         self,

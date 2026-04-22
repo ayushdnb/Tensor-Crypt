@@ -77,6 +77,18 @@ class InputHandler:
             return True
         return False
 
+    def _handle_operator_hotkey(self, ev) -> bool:
+        mods = getattr(ev, "mod", 0)
+        if not (mods & pygame.KMOD_CTRL):
+            return False
+        if ev.key == pygame.K_s:
+            self.viewer.manual_save_checkpoint()
+            return True
+        if ev.key == pygame.K_e:
+            self.viewer.export_selected_brain()
+            return True
+        return False
+
     def _find_nearest_agent_screen(self, mx, my, wrect, state_data):
         """Pick an agent using screen-space proximity for stable zoomed interaction."""
         c = float(self.cam.cell_px)
@@ -140,6 +152,8 @@ class InputHandler:
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
+                elif self._handle_operator_hotkey(ev):
+                    pass
                 elif self._is_fullscreen_hotkey(ev):
                     self.viewer.toggle_fullscreen()
                     wrect = self.viewer.layout.world_rect()
@@ -212,8 +226,15 @@ class InputHandler:
                         factor = 1.15 if ev.button == 4 else 1 / 1.15
                         self.cam.zoom_at(factor, ev.pos[0] - wrect.x, ev.pos[1] - wrect.y)
                         self.viewer.world_renderer.static_surf = None
-                elif srect.collidepoint(ev.pos) and ev.button in (4, 5) and not has_mousewheel_event:
-                    self._scroll_side_panel(-1 if ev.button == 4 else 1)
+                elif srect.collidepoint(ev.pos):
+                    if ev.button == 1:
+                        action = self.viewer.side_panel.hit_test_action(ev.pos, self.viewer._last_state_data)
+                        if action == "save_checkpoint":
+                            self.viewer.manual_save_checkpoint()
+                        elif action == "export_selected_brain":
+                            self.viewer.export_selected_brain()
+                    elif ev.button in (4, 5) and not has_mousewheel_event:
+                        self._scroll_side_panel(-1 if ev.button == 4 else 1)
             elif ev.type == pygame.MOUSEWHEEL:
                 mx, my = pygame.mouse.get_pos()
                 if wrect.collidepoint(mx, my):

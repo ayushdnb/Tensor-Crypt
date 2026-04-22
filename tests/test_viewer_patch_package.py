@@ -256,6 +256,7 @@ def test_hotkeys_toggle_overlays_speed_and_catastrophe_controls(runtime_builder)
     viewer.input_handler.handle()
     assert viewer.show_catastrophe_panel is (not panel_before)
 
+    runtime.engine.catastrophes.set_mode("auto_dynamic", current_tick=runtime.engine.tick, arm_scheduler=True)
     scheduler_before = runtime.engine.catastrophes.scheduler_paused
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_o}))
     viewer.input_handler.handle()
@@ -312,18 +313,20 @@ def test_viewer_hotkeys_toggle_reproduction_overlay_doctrines(runtime_builder):
     viewer = runtime.viewer
     controller = runtime.engine.respawn_controller
 
-    assert controller.get_doctrine_effective_enabled("crowding") is False
+    assert controller.get_doctrine_effective_enabled("crowding") is True
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_1, "mod": pygame.KMOD_SHIFT}))
     viewer.input_handler.handle()
-    assert controller.get_doctrine_effective_enabled("crowding") is True
+    assert controller.get_doctrine_effective_enabled("crowding") is False
 
+    assert controller.get_doctrine_effective_enabled("cooldown") is True
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_2, "mod": pygame.KMOD_SHIFT}))
     viewer.input_handler.handle()
-    assert controller.get_doctrine_effective_enabled("cooldown") is True
+    assert controller.get_doctrine_effective_enabled("cooldown") is False
 
+    assert controller.get_doctrine_effective_enabled("local_parent") is True
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_3, "mod": pygame.KMOD_SHIFT}))
     viewer.input_handler.handle()
-    assert controller.get_doctrine_effective_enabled("local_parent") is True
+    assert controller.get_doctrine_effective_enabled("local_parent") is False
 
     pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_0, "mod": pygame.KMOD_SHIFT}))
     viewer.input_handler.handle()

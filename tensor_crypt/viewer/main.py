@@ -5,6 +5,7 @@ import pygame
 import torch
 
 from ..config_bridge import cfg
+from ..simulation.engine import SAVE_REASON_MANUAL_OPERATOR
 from .camera import Camera
 from .colors import COLORS
 from .input import InputHandler
@@ -58,6 +59,7 @@ class Viewer:
         self.last_selected_uid = -1
         self._last_catastrophe_visual_version = -1
         self._last_state_data = None
+        self.operator_feedback = None
         self.finalize_callback = None
 
         self.world_renderer = WorldRenderer(self)
@@ -75,6 +77,91 @@ class Viewer:
         self.world_renderer.static_surf = None
         if self._last_state_data is not None:
             self.side_panel.clamp_scroll_offset(self._last_state_data)
+
+    def _set_operator_feedback(self, *, action: str, success: bool, message: str, **payload) -> None:
+        self.operator_feedback = {
+            "action": str(action),
+            "success": bool(success),
+            "message": str(message),
+            "tick": int(self.engine.tick),
+            "frame": int(self.frame_count),
+            **payload,
+        }
+
+    def _selected_live_slot(self) -> int | None:
+        slot_idx = self.selected_slot_id
+        if slot_idx is None:
+            return None
+        slot_idx = int(slot_idx)
+        registry = self.engine.registry
+        if slot_idx < 0 or slot_idx >= int(registry.max_agents):
+            return None
+        uid = int(registry.get_uid_for_slot(slot_idx))
+        if uid == -1 or not registry.is_uid_active(uid):
+            return None
+        if float(registry.data[registry.ALIVE, slot_idx].item()) <= 0.5:
+            return None
+        return slot_idx
+
+    def manual_save_checkpoint(self) -> None:
+        try:
+            checkpoint_path = self.engine.publish_runtime_checkpoint(
+                reason=SAVE_REASON_MANUAL_OPERATOR,
+                force=True,
+            )
+            if checkpoint_path is None:
+                self._set_operator_feedback(
+                    action="save",
+                    success=False,
+                    message="Save: unavailable | checkpointing disabled",
+                )
+                return
+            self._set_operator_feedback(
+                action="save",
+                success=True,
+                message=f"Save: OK | tick {int(self.engine.tick)} | {checkpoint_path.name}",
+                path=str(checkpoint_path),
+                basename=checkpoint_path.name,
+            )
+        except Exception as exc:
+            self._set_operator_feedback(
+                action="save",
+                success=False,
+                message=f"Save: FAILED | {exc}",
+            )
+
+    def export_selected_brain(self) -> None:
+        slot_idx = self._selected_live_slot()
+        if slot_idx is None:
+            self._set_operator_feedback(
+                action="export",
+                success=False,
+                message="Export: unavailable | selected agent is no longer live",
+            )
+            return
+
+        try:
+            result = self.engine.logger.export_selected_brain(
+                registry=self.engine.registry,
+                ppo=self.engine.ppo,
+                slot_idx=slot_idx,
+                tick=int(self.engine.tick),
+            )
+            self._set_operator_feedback(
+                action="export",
+                success=True,
+                message=f"Export: OK | uid {int(result['uid'])} | {result['basename']}.pt",
+                uid=int(result["uid"]),
+                path=str(result["path"]),
+                metadata_path=str(result["metadata_path"]),
+                basename=str(result["basename"]),
+            )
+        except Exception as exc:
+            self._set_operator_feedback(
+                action="export",
+                success=False,
+                message=f"Export: FAILED | {exc}",
+            )
 
     def _sync_surface_size(self, width: int, height: int, *, refit_world: bool, remember_windowed: bool) -> None:
         self.Wpix = max(1, int(width))

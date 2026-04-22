@@ -12,6 +12,7 @@ Operators, maintainers, and technical readers who need actionable procedures and
 - run metadata
 - ledger files
 - snapshots and brains
+- selected-brain exports
 - checkpoint directory
 
 ## What this document does not cover
@@ -26,7 +27,7 @@ Operators, maintainers, and technical readers who need actionable procedures and
 
 The run-path helper creates a timestamped `run_YYYYMMDD_HHMMSS` directory beneath the configured log root, adding a numeric suffix if the timestamp already exists.
 
-## 2. Baseline structure visible in the dump
+## 2. Baseline structure created by the run-path helper
 
 The helper ensures at least these subdirectories exist:
 - `snapshots`
@@ -61,6 +62,7 @@ The data logger can emit:
 | HDF5 file | snapshot-style structured storage |
 | parquet ledgers | append-oriented operational records |
 | lineage JSON | graph-form lineage export derived from canonical UID surfaces |
+| `brains/selected_exports/` | operator-selected live brain weight exports and JSON metadata sidecars |
 | `checkpoints/` directory | runtime checkpoint bundles and their side files |
 
 ## 5. Buffered parquet writes

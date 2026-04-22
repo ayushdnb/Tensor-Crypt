@@ -1,6 +1,0 @@
-surface,injection,outcome
-manifest_presence,delete_manifest_after_save,pass
-bundle_checksum,append_bytes_after_save,pass
-latest_pointer_checksum,corrupt_bundle_sha256_in_pointer,pass
-atomic_publish_temp_files,raise_during_torch_save,pass
-relative_pointer_resolution,load_from_relative_checkpoint_dir,pass

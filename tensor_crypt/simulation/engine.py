@@ -41,7 +41,7 @@ HP_RATIO_DENOM_EPS = 1e-6
 SAVE_REASON_SCHEDULED_TICK = "scheduled_tick"
 SAVE_REASON_SCHEDULED_WALLCLOCK = "scheduled_wallclock"
 SAVE_REASON_SHUTDOWN = "shutdown"
-SAVE_REASON_MANUAL_RESERVED = "manual_future_reserved"
+SAVE_REASON_MANUAL_OPERATOR = "manual_operator"
 
 
 def _ppo_reward_form() -> str:
@@ -504,7 +504,7 @@ class Engine:
     def _maybe_save_runtime_checkpoint(self) -> Path | None:
         return self._maybe_save_runtime_checkpoint_tick()
 
-    def publish_runtime_checkpoint(self, reason: str = SAVE_REASON_MANUAL_RESERVED, *, force: bool = False) -> Path | None:
+    def publish_runtime_checkpoint(self, reason: str = SAVE_REASON_MANUAL_OPERATOR, *, force: bool = False) -> Path | None:
         return self._publish_runtime_checkpoint(reason, force=force)
 
     def _maybe_print_tick_progress(self) -> None:

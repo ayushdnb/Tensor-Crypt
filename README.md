@@ -6,7 +6,7 @@ The project name refers to the repository's dense tensor substrate and its empha
 
 ## Main capabilities
 
-- Interactive viewer with pan, zoom, selection, overlays, and catastrophe controls
+- Interactive viewer with pan, zoom, selection, overlays, catastrophe controls, manual checkpoint save, and selected-brain export
 - Procedural map generation with walls and heal zones
 - Slot-backed agent storage with canonical UID ownership and lineage tracking
 - Bloodline-aware MLP policy/value networks with multiple family topologies
@@ -112,6 +112,8 @@ The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 - `Esc`: quit
 - `Space`: pause / resume
 - `.`: advance one tick while paused
+- `Ctrl+S`: manually publish a runtime checkpoint through the canonical checkpoint path
+- `Ctrl+E`: export the live selected agent's brain weights and metadata
 - `+` / `-`: increase or decrease simulation speed
 - `WASD` or arrow keys: pan
 - Mouse wheel: zoom at cursor
@@ -130,6 +132,10 @@ The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 - `U`: arm or disarm the catastrophe scheduler
 - `I`: toggle catastrophe panel
 - `O`: pause or resume the catastrophe scheduler
+
+The side-panel inspector includes a compact Actions block for the same manual save/export operations. Manual save remains available while paused. Brain export is enabled only when a live agent is selected.
+
+When a live agent is selected, the inspector always surfaces the canonical UID, family, and trainable parameter count. It also keeps compact forensic fields such as slot, age/birth tick, lineage depth, parent-role UIDs, health/position, trait summary, PPO counters, and catastrophe exposure when the corresponding enrichment surfaces are enabled.
 
 ## Configuration
 
@@ -185,19 +191,27 @@ logs/
     ├── catastrophes.parquet
     ├── lineage_graph.json
     ├── brains/
-    │   └── brains_tick_<tick>.pt
+    │   ├── brains_tick_<tick>.pt
+    │   └── selected_exports/
+    │       └── uid_<uid>/
+    │           ├── uid_<uid>_tick_<tick>_slot_<slot>_<family>.pt
+    │           └── uid_<uid>_tick_<tick>_slot_<slot>_<family>.json
     └── checkpoints/          # Created when periodic runtime checkpointing is enabled
 ```
 
 `simulation_data.hdf5` stores agent snapshots, heatmaps, and identity datasets. The run directory is also created with `snapshots/`, `brains/`, and `heatmaps/` subdirectories; in the current logger, snapshots and heatmaps are written into the HDF5 file, while brain state files are written into `brains/`.
 
-Runtime checkpoints are controlled by `cfg.CHECKPOINT`. When periodic checkpointing is enabled, the engine publishes bundle files under the run directory's checkpoint folder using the configured filename prefix. In the current runtime, manifest files and `latest_checkpoint.json` are published only when `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST` are all true. On that path each checkpoint can include:
+Selected-brain export is an operator action for the currently live selected agent only. The logger writes a weight-bearing `.pt` bundle plus a `.json` metadata sidecar under the session-aware `brains/selected_exports/uid_<uid>/` hierarchy. Metadata includes UID, slot, family, parameter count, topology signature, observation contract, lineage and parent-role fields, export tick, session identifiers, and live PPO state presence/counters.
+
+Runtime checkpoints are controlled by `cfg.CHECKPOINT`. When periodic checkpointing is enabled, the engine publishes bundle files under the run directory's checkpoint folder using the configured filename prefix. `Ctrl+S` and the side-panel Save action call the same canonical engine publication path with save reason `manual_operator` and `force=True`; they do not bypass telemetry flushing, manifests, latest-pointer publication, retention pruning, or session metadata updates. In the current runtime, manifest files and `latest_checkpoint.json` are published only when `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST` are all true. On that path each checkpoint can include:
 
 - a `.pt` bundle
 - a manifest file with checksums and metadata
 - `latest_checkpoint.json` pointing to the most recent published checkpoint
 
 The checkpoint code validates schema versions, UID bindings, PPO state, and manifest metadata during load. Checkpoint bundles also persist reproduction doctrine runtime state: viewer-toggled doctrine overrides plus The Widow Interval cooldown ledgers are restored on resume instead of snapping back to config defaults.
+
+Runtime-generated outputs under `logs/`, `artifacts/`, checkpoints, selected-brain exports, cache directories, and local task scratch files are generated artifacts. Do not commit them.
 
 ## Benchmarking
 
