@@ -14,6 +14,7 @@ import torch
 from ..config_bridge import cfg
 from ..population.reproduction import default_trait_latent, trait_values_from_latent
 from .lineage_export import export_lineage_json
+from .run_paths import SessionPlan, session_plan_from_run_directory, update_session_metadata
 
 
 _SPAWN_LEDGER_SCHEMA = pa.schema(
@@ -106,27 +107,48 @@ class DataLogger:
     - lineage export is derived from the canonical UID/parent-role substrate
     """
 
-    def __init__(self, run_dir: str):
+    def __init__(self, run_dir: str, session_plan: SessionPlan | None = None):
         self.run_dir = Path(run_dir)
+        self.session_plan = session_plan or session_plan_from_run_directory(self.run_dir)
+        self.session_id = int(self.session_plan.session_id)
+        self.session_label = self.session_plan.session_label
+        self.session_dir = Path(self.session_plan.session_dir)
+        self.telemetry_dir = Path(self.session_plan.telemetry_dir)
+        self.uses_root_telemetry_layout = bool(self.session_plan.uses_root_telemetry_layout)
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        (self.run_dir / "brains").mkdir(parents=True, exist_ok=True)
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        self.telemetry_dir.mkdir(parents=True, exist_ok=True)
+        self.brains_dir = self.run_dir / "brains" if self.uses_root_telemetry_layout else self.telemetry_dir / "brains"
+        self.brains_dir.mkdir(parents=True, exist_ok=True)
 
         self.hdf_path = self.run_dir / "simulation_data.hdf5"
-        self.h5_file = h5py.File(str(self.hdf_path), "w")
-        self.h5_snapshots = self.h5_file.create_group("agent_snapshots")
-        self.h5_heatmaps = self.h5_file.create_group("heatmaps")
-        self.h5_identity = self.h5_file.create_group("agent_identity")
+        hdf_mode = "w" if self.uses_root_telemetry_layout else "a"
+        self.h5_file = h5py.File(str(self.hdf_path), hdf_mode)
+        if self.uses_root_telemetry_layout:
+            self.h5_snapshots = self.h5_file.create_group("agent_snapshots")
+            self.h5_heatmaps = self.h5_file.create_group("heatmaps")
+            self.h5_identity = self.h5_file.create_group("agent_identity")
+        else:
+            sessions_root = self.h5_file.require_group("sessions")
+            if self.session_label in sessions_root:
+                raise FileExistsError(
+                    f"HDF5 session group already exists for {self.session_label}; refusing to overwrite continuation telemetry"
+                )
+            session_group = sessions_root.create_group(self.session_label)
+            self.h5_snapshots = session_group.create_group("agent_snapshots")
+            self.h5_heatmaps = session_group.create_group("heatmaps")
+            self.h5_identity = session_group.create_group("agent_identity")
 
-        self.birth_ledger_path = self.run_dir / "birth_ledger.parquet"
-        self.genealogy_path = self.run_dir / "genealogy.parquet"  # backward-compatible alias surface
-        self.life_ledger_path = self.run_dir / "life_ledger.parquet"
-        self.death_ledger_path = self.run_dir / "death_ledger.parquet"
-        self.collisions_path = self.run_dir / "collisions.parquet"
-        self.ppo_path = self.run_dir / "ppo_events.parquet"
-        self.tick_summary_path = self.run_dir / "tick_summary.parquet"
-        self.family_summary_path = self.run_dir / "family_summary.parquet"
-        self.catastrophes_path = self.run_dir / "catastrophes.parquet"
-        self.lineage_path = self.run_dir / "lineage_graph.json"
+        self.birth_ledger_path = self.telemetry_dir / "birth_ledger.parquet"
+        self.genealogy_path = self.telemetry_dir / "genealogy.parquet"  # backward-compatible alias surface
+        self.life_ledger_path = self.telemetry_dir / "life_ledger.parquet"
+        self.death_ledger_path = self.telemetry_dir / "death_ledger.parquet"
+        self.collisions_path = self.telemetry_dir / "collisions.parquet"
+        self.ppo_path = self.telemetry_dir / "ppo_events.parquet"
+        self.tick_summary_path = self.telemetry_dir / "tick_summary.parquet"
+        self.family_summary_path = self.telemetry_dir / "family_summary.parquet"
+        self.catastrophes_path = self.telemetry_dir / "catastrophes.parquet"
+        self.lineage_path = self.telemetry_dir / "lineage_graph.json"
 
         self.birth_writer: Optional[pq.ParquetWriter] = None
         self.genealogy_writer: Optional[pq.ParquetWriter] = None
@@ -450,7 +472,7 @@ class DataLogger:
             "tick": tick,
             "schema_versions": self._schema_versions(),
         }
-        torch.save(payload, str(self.run_dir / "brains" / f"brains_tick_{tick}.pt"))
+        torch.save(payload, str(self.brains_dir / f"brains_tick_{tick}.pt"))
 
     def log_spawn_event(
         self,
@@ -864,12 +886,33 @@ class DataLogger:
         rows_by_uid = {**self.finalized_lives_by_uid, **self.open_lives_by_uid}
         return export_lineage_json(self.lineage_path, registry, life_rows_by_uid=rows_by_uid)
 
-    def close(self, registry=None):
-        """Finalize open life rows, flush buffered ledgers, and close file handles exactly once."""
+    def record_checkpoint_published(self, *, tick: int, path: str | Path, reason: str) -> None:
+        """Best-effort session metadata update after a successful checkpoint publish."""
+        if self.session_plan is None:
+            return
+        update_session_metadata(
+            self.session_plan,
+            last_checkpoint_tick=int(tick),
+            last_checkpoint_path=str(path),
+            last_checkpoint_reason=str(reason),
+        )
+
+    def close(
+        self,
+        registry=None,
+        *,
+        finalize_open_lives: bool | None = None,
+        close_reason: str = "session_close",
+        close_tick: int | None = None,
+    ):
+        """Flush buffered ledgers and close file handles exactly once."""
         if self._closed:
             return
 
-        if registry is not None and cfg.TELEMETRY.FLUSH_OPEN_LIVES_ON_CLOSE:
+        if finalize_open_lives is None:
+            finalize_open_lives = bool(cfg.TELEMETRY.FLUSH_OPEN_LIVES_ON_CLOSE)
+
+        if registry is not None and finalize_open_lives:
             for uid, slot_idx in sorted(registry.active_uid_to_slot.items()):
                 life_row = dict(self.open_lives_by_uid.get(uid, {}))
                 if not life_row:
@@ -889,7 +932,11 @@ class DataLogger:
             self.export_lineage(registry)
 
         self.flush_parquet_buffers()
-        self.h5_file.close()
+        close_errors: list[str] = []
+        try:
+            self.h5_file.close()
+        except Exception as exc:
+            close_errors.append(f"hdf5:{exc}")
         for attr in (
             "birth_writer",
             "genealogy_writer",
@@ -903,7 +950,23 @@ class DataLogger:
         ):
             writer = getattr(self, attr)
             if writer is not None:
-                writer.close()
+                try:
+                    writer.close()
+                except Exception as exc:
+                    close_errors.append(f"{attr}:{exc}")
+                finally:
+                    setattr(self, attr, None)
+
+        update_session_metadata(
+            self.session_plan,
+            session_ended_tick=None if close_tick is None else int(close_tick),
+            close_reason=str(close_reason),
+            finalized_open_lives=bool(finalize_open_lives and registry is not None),
+            logger_closed=True,
+            logger_close_errors=close_errors,
+        )
 
         self._closed = True
+        if close_errors:
+            raise RuntimeError(f"Logger close encountered errors: {close_errors}")
 

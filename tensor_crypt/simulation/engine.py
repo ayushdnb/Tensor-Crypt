@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 import math
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 import torch
@@ -37,6 +38,10 @@ from .catastrophes import CatastropheManager
 SUPPORTED_PPO_REWARD_FORMS = frozenset({"sq_health_ratio"})
 SUPPORTED_PPO_REWARD_GATE_MODES = frozenset({"off", "hp_ratio_min", "hp_abs_min"})
 HP_RATIO_DENOM_EPS = 1e-6
+SAVE_REASON_SCHEDULED_TICK = "scheduled_tick"
+SAVE_REASON_SCHEDULED_WALLCLOCK = "scheduled_wallclock"
+SAVE_REASON_SHUTDOWN = "shutdown"
+SAVE_REASON_MANUAL_RESERVED = "manual_future_reserved"
 
 
 def _ppo_reward_form() -> str:
@@ -138,11 +143,18 @@ class Engine:
         self.registry.tick_counter = 0
         self.last_runtime_checkpoint_tick = -1
         self.last_runtime_checkpoint_path: str | None = None
+        self.last_runtime_checkpoint_reason: str | None = None
+        self.last_runtime_checkpoint_wallclock_time: float | None = None
+        self._wallclock_autosave_started_at = time.monotonic()
+        self._checkpoint_capture_reason: str | None = None
+        self._checkpoint_capture_path: str | None = None
         self._runtime_checkpoint_view = SimpleNamespace(
             registry=self.registry,
             grid=self.grid,
             ppo=self.ppo,
             engine=self,
+            data_logger=self.logger,
+            run_dir=str(getattr(self.logger, "run_dir", "")),
         )
         self._actions_sparse = torch.zeros(
             self.registry.max_agents,
@@ -392,9 +404,21 @@ class Engine:
     def _checkpoint_dir(self) -> Path:
         return Path(self.logger.run_dir) / cfg.CHECKPOINT.DIRECTORY_NAME
 
-    def _checkpoint_path_for_tick(self, tick: int) -> Path:
-        filename = f"{cfg.CHECKPOINT.FILENAME_PREFIX}{int(tick):08d}{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}"
-        return self._checkpoint_dir() / filename
+    def _checkpoint_path_for_tick(self, tick: int, reason: str = SAVE_REASON_SCHEDULED_TICK) -> Path:
+        if reason == SAVE_REASON_SCHEDULED_TICK:
+            filename = f"{cfg.CHECKPOINT.FILENAME_PREFIX}{int(tick):08d}{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}"
+        else:
+            safe_reason = "".join(ch if ch.isalnum() else "_" for ch in str(reason)).strip("_") or "checkpoint"
+            filename = f"{cfg.CHECKPOINT.FILENAME_PREFIX}{int(tick):08d}_{safe_reason}{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}"
+        path = self._checkpoint_dir() / filename
+        if not path.exists():
+            return path
+        stem = path.stem
+        for idx in range(1, 1000):
+            candidate = path.with_name(f"{stem}_{idx:02d}{path.suffix}")
+            if not candidate.exists():
+                return candidate
+        raise RuntimeError(f"Unable to allocate a unique checkpoint path for tick {tick} and reason {reason!r}")
 
     def _prune_old_runtime_checkpoints(self) -> None:
         keep_last = int(cfg.CHECKPOINT.KEEP_LAST)
@@ -411,20 +435,77 @@ class Engine:
             bundle_path.unlink(missing_ok=True)
             manifest_path_for(bundle_path).unlink(missing_ok=True)
 
-    def _maybe_save_runtime_checkpoint(self) -> None:
-        """Publish a post-tick checkpoint only after physics, deaths, births, and PPO state settle."""
-        interval = int(cfg.CHECKPOINT.SAVE_EVERY_TICKS)
-        if not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS or interval <= 0:
+    def flush_telemetry_for_checkpoint(self, reason: str) -> None:
+        """Flush buffered telemetry rows before a checkpoint observes runtime state."""
+        if getattr(self.logger, "_closed", False):
             return
-        if self.tick <= 0 or self.tick % interval != 0:
-            return
+        self.logger.flush_parquet_buffers()
+        h5_file = getattr(self.logger, "h5_file", None)
+        if h5_file is not None:
+            h5_file.flush()
 
-        checkpoint_path = self._checkpoint_path_for_tick(self.tick)
-        bundle = capture_runtime_checkpoint(self._runtime_checkpoint_view)
+    def _publish_runtime_checkpoint(self, reason: str, *, force: bool = False) -> Path | None:
+        """Publish one checkpoint after telemetry has reached a durable row boundary."""
+        if not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS:
+            return None
+        if not force and int(self.tick) <= 0:
+            return None
+
+        checkpoint_path = self._checkpoint_path_for_tick(self.tick, reason=reason)
+        self.flush_telemetry_for_checkpoint(reason)
+        previous_reason = self._checkpoint_capture_reason
+        previous_path = self._checkpoint_capture_path
+        self._checkpoint_capture_reason = str(reason)
+        self._checkpoint_capture_path = str(checkpoint_path)
+        try:
+            bundle = capture_runtime_checkpoint(self._runtime_checkpoint_view)
+        finally:
+            self._checkpoint_capture_reason = previous_reason
+            self._checkpoint_capture_path = previous_path
         save_runtime_checkpoint(checkpoint_path, bundle)
         self.last_runtime_checkpoint_tick = int(self.tick)
         self.last_runtime_checkpoint_path = str(checkpoint_path)
+        self.last_runtime_checkpoint_reason = str(reason)
+        if reason == SAVE_REASON_SCHEDULED_WALLCLOCK:
+            self.last_runtime_checkpoint_wallclock_time = time.monotonic()
+        if hasattr(self.logger, "record_checkpoint_published"):
+            self.logger.record_checkpoint_published(tick=self.tick, path=checkpoint_path, reason=reason)
         self._prune_old_runtime_checkpoints()
+        return checkpoint_path
+
+    def _maybe_save_runtime_checkpoint_tick(self) -> Path | None:
+        """Publish a post-tick checkpoint only after physics, deaths, births, and PPO state settle."""
+        interval = int(cfg.CHECKPOINT.SAVE_EVERY_TICKS)
+        if not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS or interval <= 0:
+            return None
+        if self.tick <= 0 or self.tick % interval != 0:
+            return None
+        return self._publish_runtime_checkpoint(SAVE_REASON_SCHEDULED_TICK)
+
+    def _maybe_save_runtime_checkpoint_wallclock(self, *, paused: bool = False) -> Path | None:
+        if not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS or not cfg.CHECKPOINT.ENABLE_WALLCLOCK_AUTOSAVE:
+            return None
+        if paused and not cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_WHILE_PAUSED:
+            return None
+        now = time.monotonic()
+        last_wallclock = self.last_runtime_checkpoint_wallclock_time
+        if last_wallclock is None:
+            last_wallclock = self._wallclock_autosave_started_at
+        if now - float(last_wallclock) < float(cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_INTERVAL_SECONDS):
+            return None
+        min_ticks = int(cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_MIN_TICKS_ADVANCED)
+        if self.last_runtime_checkpoint_tick >= 0 and int(self.tick) - int(self.last_runtime_checkpoint_tick) < min_ticks:
+            return None
+        return self._publish_runtime_checkpoint(SAVE_REASON_SCHEDULED_WALLCLOCK)
+
+    def maybe_save_runtime_checkpoint_wallclock(self, *, paused: bool = False) -> Path | None:
+        return self._maybe_save_runtime_checkpoint_wallclock(paused=paused)
+
+    def _maybe_save_runtime_checkpoint(self) -> Path | None:
+        return self._maybe_save_runtime_checkpoint_tick()
+
+    def publish_runtime_checkpoint(self, reason: str = SAVE_REASON_MANUAL_RESERVED, *, force: bool = False) -> Path | None:
+        return self._publish_runtime_checkpoint(reason, force=force)
 
     def _maybe_print_tick_progress(self) -> None:
         if self.tick % cfg.LOG.LOG_TICK_EVERY == 0:
@@ -546,5 +627,6 @@ class Engine:
 
         self._maybe_run_ppo_update()
         self._maybe_save_snapshots()
-        self._maybe_save_runtime_checkpoint()
+        self._maybe_save_runtime_checkpoint_tick()
+        self._maybe_save_runtime_checkpoint_wallclock(paused=False)
         self._maybe_print_tick_progress()

@@ -58,6 +58,7 @@ class Viewer:
         self.last_selected_uid = -1
         self._last_catastrophe_visual_version = -1
         self._last_state_data = None
+        self.finalize_callback = None
 
         self.world_renderer = WorldRenderer(self)
         self.hud_panel = HudPanel(self)
@@ -157,41 +158,49 @@ class Viewer:
         running = True
         render_every_n_frames = 2
 
-        while running:
-            running, advance_tick = self.input_handler.handle()
+        try:
+            while running:
+                running, advance_tick = self.input_handler.handle()
 
-            num_ticks_this_frame = 0
-            if not self.paused:
-                if self.speed_multiplier >= 1.0:
-                    num_ticks_this_frame = int(self.speed_multiplier * render_every_n_frames)
-                else:
-                    num_ticks_this_frame = 1 if self.frame_count % int(1.0 / self.speed_multiplier) == 0 else 0
-            elif advance_tick:
-                num_ticks_this_frame = 1
+                num_ticks_this_frame = 0
+                if not self.paused:
+                    if self.speed_multiplier >= 1.0:
+                        num_ticks_this_frame = int(self.speed_multiplier * render_every_n_frames)
+                    else:
+                        num_ticks_this_frame = 1 if self.frame_count % int(1.0 / self.speed_multiplier) == 0 else 0
+                elif advance_tick:
+                    num_ticks_this_frame = 1
 
-            for _ in range(num_ticks_this_frame):
-                if cfg.SIM.MAX_TICKS > 0 and self.engine.tick >= int(cfg.SIM.MAX_TICKS):
-                    running = False
-                    break
-                self.engine.step()
+                for _ in range(num_ticks_this_frame):
+                    if cfg.SIM.MAX_TICKS > 0 and self.engine.tick >= int(cfg.SIM.MAX_TICKS):
+                        running = False
+                        break
+                    self.engine.step()
+                if num_ticks_this_frame == 0 and hasattr(self.engine, "maybe_save_runtime_checkpoint_wallclock"):
+                    self.engine.maybe_save_runtime_checkpoint_wallclock(paused=self.paused)
 
-            state_data = self._prepare_state_data()
-            self._last_state_data = state_data
-            self.side_panel.clamp_scroll_offset(state_data)
+                state_data = self._prepare_state_data()
+                self._last_state_data = state_data
+                self.side_panel.clamp_scroll_offset(state_data)
 
-            visual_version = state_data["catastrophe_state"].get("visual_state_version", 0)
-            if visual_version != self._last_catastrophe_visual_version:
-                self.world_renderer.static_surf = None
-                self._last_catastrophe_visual_version = visual_version
+                visual_version = state_data["catastrophe_state"].get("visual_state_version", 0)
+                if visual_version != self._last_catastrophe_visual_version:
+                    self.world_renderer.static_surf = None
+                    self._last_catastrophe_visual_version = visual_version
 
-            if self.frame_count % render_every_n_frames == 0:
-                self.screen.fill(COLORS["bg"])
-                self.world_renderer.draw(self.screen, state_data)
-                self.hud_panel.draw(self.screen, state_data)
-                self.side_panel.draw(self.screen, state_data)
-                pygame.display.flip()
+                if self.frame_count % render_every_n_frames == 0:
+                    self.screen.fill(COLORS["bg"])
+                    self.world_renderer.draw(self.screen, state_data)
+                    self.hud_panel.draw(self.screen, state_data)
+                    self.side_panel.draw(self.screen, state_data)
+                    pygame.display.flip()
 
-            self.clock.tick(cfg.VIEW.FPS)
-            self.frame_count += 1
+                self.clock.tick(cfg.VIEW.FPS)
+                self.frame_count += 1
 
-        pygame.quit()
+        finally:
+            try:
+                if callable(self.finalize_callback):
+                    self.finalize_callback()
+            finally:
+                pygame.quit()

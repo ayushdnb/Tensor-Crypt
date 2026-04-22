@@ -107,6 +107,7 @@ def build_checkpoint_manifest(bundle: dict, bundle_path: str | Path) -> dict:
     checksum = _sha256_file(bundle_path) if cfg.CHECKPOINT.CHECKSUM_ENABLED else None
     config_snapshot = bundle.get("config_snapshot", {})
     resume_contract = bundle.get("metadata", {}).get("resume_contract", {})
+    runtime_lifecycle = bundle.get("metadata", {}).get("runtime_lifecycle", {})
     exact_capability = resume_contract.get("exact_resume_capability", {})
     return {
         "checkpoint_schema_version": int(bundle["checkpoint_schema_version"]),
@@ -131,6 +132,13 @@ def build_checkpoint_manifest(bundle: dict, bundle_path: str | Path) -> dict:
         "resume_taxonomy_version": resume_contract.get("resume_taxonomy_version"),
         "exact_resume_capable": bool(exact_capability.get("exact_resume_capable", False)),
         "contract_hashes": dict(resume_contract.get("contract_hashes", {})),
+        "save_reason": runtime_lifecycle.get("save_reason"),
+        "save_reason_version": runtime_lifecycle.get("save_reason_version"),
+        "session_id": runtime_lifecycle.get("session_id"),
+        "session_label": runtime_lifecycle.get("session_label"),
+        "session_kind": runtime_lifecycle.get("session_kind"),
+        "lineage_root_identifier": runtime_lifecycle.get("lineage_root_identifier"),
+        "continued_from_session_id": runtime_lifecycle.get("continued_from_session_id"),
     }
 
 
@@ -209,6 +217,7 @@ def atomic_save_checkpoint_files(bundle_path: str | Path, bundle: dict) -> dict:
         temp_pointer = pointer_path.with_name(f"{pointer_path.name}.tmp")
         relative_bundle_path = os.path.relpath(bundle_path, start=pointer_path.parent)
         relative_manifest_path = os.path.relpath(manifest_path, start=pointer_path.parent)
+        runtime_lifecycle = bundle.get("metadata", {}).get("runtime_lifecycle", {})
         _write_json(
             temp_pointer,
             {
@@ -222,6 +231,13 @@ def atomic_save_checkpoint_files(bundle_path: str | Path, bundle: dict) -> dict:
                 "config_fingerprint": validated_manifest.get("config_fingerprint"),
                 "resume_taxonomy_version": validated_manifest.get("resume_taxonomy_version"),
                 "exact_resume_capable": bool(validated_manifest.get("exact_resume_capable", False)),
+                "save_reason": runtime_lifecycle.get("save_reason"),
+                "save_reason_version": runtime_lifecycle.get("save_reason_version"),
+                "session_id": runtime_lifecycle.get("session_id"),
+                "session_label": runtime_lifecycle.get("session_label"),
+                "session_kind": runtime_lifecycle.get("session_kind"),
+                "lineage_root_identifier": runtime_lifecycle.get("lineage_root_identifier"),
+                "continued_from_session_id": runtime_lifecycle.get("continued_from_session_id"),
             },
         )
         os.replace(temp_pointer, pointer_path)

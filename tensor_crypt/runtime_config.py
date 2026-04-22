@@ -1621,6 +1621,51 @@ class CheckpointConfig:
     # Stable filename prefix for scheduled checkpoint bundles.
     # Pure pathing knob.
     FILENAME_PREFIX: str = "runtime_tick_"  # Stable filename prefix for periodic runtime checkpoints.
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Enables elapsed wall-clock checkpointing in addition to tick cadence.
+    # The timer is process-local and restarts on resume.
+    ENABLE_WALLCLOCK_AUTOSAVE: bool = False
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Elapsed real-time interval between successful wall-clock checkpoint saves.
+    WALLCLOCK_AUTOSAVE_INTERVAL_SECONDS: float = 900.0
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Minimum tick advancement since the previous successful checkpoint before a wall-clock save may fire.
+    WALLCLOCK_AUTOSAVE_MIN_TICKS_ADVANCED: int = 1
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether wall-clock autosave may fire while the viewer is paused.
+    WALLCLOCK_AUTOSAVE_WHILE_PAUSED: bool = False
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether graceful normal exit attempts a final checkpoint.
+    ENABLE_SHUTDOWN_CHECKPOINT: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # If true, shutdown continues to logger close even if the final checkpoint fails.
+    SHUTDOWN_CHECKPOINT_BEST_EFFORT: bool = True
+    #
+    # CURRENT STATUS: active runtime metadata knob.
+    # Records explicit checkpoint save reasons in bundle, manifest, pointer, and session metadata.
+    SAVE_REASON_LOGGING_ENABLED: bool = True
+    #
+    # CURRENT STATUS: active launch/resume knob.
+    # Exact/drift resume continues the source lineage root using session-segment telemetry.
+    CONTINUE_TELEMETRY_ON_RESUME: bool = True
+    #
+    # CURRENT STATUS: active launch/resume knob.
+    # Supported Stage-2 policy: "continue_lineage_root".
+    RESUME_CONTINUATION_POLICY: str = "continue_lineage_root"
+    #
+    # CURRENT STATUS: active launch/resume knob.
+    # Supported Stage-2 fork policy: "new_lineage_root".
+    FORK_TELEMETRY_POLICY: str = "new_lineage_root"
+    #
+    # CURRENT STATUS: active resume bookkeeping knob.
+    # Restores checkpoint-worthy save bookkeeping without restoring wall-clock timers.
+    RESTORE_CHECKPOINT_BOOKKEEPING_ON_RESUME: bool = True
 
     # Prompt 7 atomic publish and corruption controls.
     #
@@ -1800,6 +1845,26 @@ class TelemetryConfig:
     FLUSH_OPEN_LIVES_ON_CLOSE: bool = True
     #
     # CURRENT STATUS: active runtime knob.
+    # Enables explicit session subdirectories for resumed-run telemetry.
+    SESSION_SEGMENTATION_ENABLED: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Ordinary process-session close should not emit terminal life rows for still-living UIDs.
+    FINALIZE_OPEN_LIVES_ON_SESSION_CLOSE: bool = False
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Explicit terminal lineage close may still flush open life rows when requested by tooling.
+    FINALIZE_OPEN_LIVES_ON_TERMINAL_RUN_CLOSE: bool = True
+    #
+    # CURRENT STATUS: active runtime metadata knob.
+    # Writes/updates `session_catalog.json` in each lineage root.
+    WRITE_SESSION_CATALOG: bool = True
+    #
+    # CURRENT STATUS: active runtime metadata knob.
+    # Writes per-session metadata under `sessions/session_XXXX/session_metadata.json`.
+    WRITE_SESSION_METADATA: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
     # Whether catastrophe exposure is tracked for telemetry.
     # Useful for shock attribution analyses.
     TRACK_CATASTROPHE_EXPOSURE: bool = True
@@ -1847,6 +1912,10 @@ class ValidationConfig:
     # Whether stage-1 checkpoint launch-mode compatibility probes are run.
     # These verify exact/drift/fork classification without changing simulation rules.
     ENABLE_RESUME_POLICY_TESTS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether Stage-2 lifecycle/checkpoint/telemetry continuation probes are run by the final suite.
+    ENABLE_STAGE2_LIFECYCLE_TESTS: bool = True
     #
     # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
     # Audit basis: no direct `.VALIDATION.VALIDATION_STRICTNESS` runtime read was found in the code dump.

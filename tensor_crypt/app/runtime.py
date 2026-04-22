@@ -28,11 +28,13 @@ from ..learning.ppo import PPO
 from ..population.evolution import Evolution
 from ..simulation.engine import Engine, validate_ppo_reward_config
 from ..telemetry.data_logger import DataLogger
+from ..telemetry.run_paths import SessionPlan, session_plan_from_run_directory
 from ..viewer.main import Viewer
 from ..world.perception import Perception
 from ..world.physics import Physics
 from ..world.procedural_map import add_random_hzones, add_random_walls
 from ..world.spatial_grid import Grid
+from .lifecycle import finalize_runtime
 
 
 SUPPORTED_GRID_OVERLAP_MODES = frozenset({"max_abs", "sum_clamped", "last_wins"})
@@ -57,6 +59,8 @@ SUPPORTED_RESPAWN_LOCAL_PARENT_FALLBACK_POLICIES = frozenset({"global", "strict"
 SUPPORTED_RESPAWN_LOCAL_PARENT_BELOW_FLOOR_POLICIES = frozenset({"prefer_local_then_global", "bypass", "strict"})
 SUPPORTED_CHECKPOINT_LAUNCH_MODES = frozenset({"fresh_run", "resume_exact", "resume_with_drift", "fork_from_checkpoint"})
 SUPPORTED_LEGACY_METADATA_POLICIES = frozenset({"infer_conservative", "reject"})
+SUPPORTED_RESUME_CONTINUATION_POLICIES = frozenset({"continue_lineage_root"})
+SUPPORTED_FORK_TELEMETRY_POLICIES = frozenset({"new_lineage_root"})
 
 
 @dataclass
@@ -70,6 +74,7 @@ class SimulationRuntime:
     """
 
     run_dir: str
+    session_plan: SessionPlan
     data_logger: DataLogger
     grid: Grid
     registry: Registry
@@ -186,6 +191,28 @@ def validate_runtime_config() -> None:
         raise ValueError("PPO.EPOCHS must be positive")
     if int(cfg.CHECKPOINT.SAVE_EVERY_TICKS) < 0:
         raise ValueError("CHECKPOINT.SAVE_EVERY_TICKS must be >= 0")
+    if bool(cfg.CHECKPOINT.ENABLE_WALLCLOCK_AUTOSAVE):
+        interval = float(cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_INTERVAL_SECONDS)
+        if interval <= 0.0:
+            raise ValueError("CHECKPOINT.WALLCLOCK_AUTOSAVE_INTERVAL_SECONDS must be > 0 when wall-clock autosave is enabled")
+    if int(cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_MIN_TICKS_ADVANCED) < 0:
+        raise ValueError("CHECKPOINT.WALLCLOCK_AUTOSAVE_MIN_TICKS_ADVANCED must be >= 0")
+    _require_choice(
+        "CHECKPOINT.RESUME_CONTINUATION_POLICY",
+        cfg.CHECKPOINT.RESUME_CONTINUATION_POLICY,
+        SUPPORTED_RESUME_CONTINUATION_POLICIES,
+    )
+    _require_choice(
+        "CHECKPOINT.FORK_TELEMETRY_POLICY",
+        cfg.CHECKPOINT.FORK_TELEMETRY_POLICY,
+        SUPPORTED_FORK_TELEMETRY_POLICIES,
+    )
+    if cfg.CHECKPOINT.CONTINUE_TELEMETRY_ON_RESUME and not cfg.TELEMETRY.SESSION_SEGMENTATION_ENABLED:
+        raise ValueError(
+            "CHECKPOINT.CONTINUE_TELEMETRY_ON_RESUME requires TELEMETRY.SESSION_SEGMENTATION_ENABLED for restart-safe parquet continuation"
+        )
+    if cfg.CHECKPOINT.ENABLE_SHUTDOWN_CHECKPOINT and not cfg.CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS:
+        raise ValueError("CHECKPOINT.ENABLE_SHUTDOWN_CHECKPOINT requires CHECKPOINT.ENABLE_SUBSTRATE_CHECKPOINTS")
     if int(cfg.RESPAWN.OVERLAYS.CROWDING.LOCAL_RADIUS) < 0:
         raise ValueError("RESPAWN.OVERLAYS.CROWDING.LOCAL_RADIUS must be >= 0")
     if int(cfg.RESPAWN.OVERLAYS.CROWDING.MAX_NEIGHBORS) < 0:
@@ -261,18 +288,24 @@ def setup_determinism() -> None:
         torch.backends.cudnn.benchmark = False
 
 
-def _build_substrate_objects(run_dir: str):
-    data_logger = DataLogger(run_dir)
+def _build_substrate_objects(run_dir: str, session_plan: SessionPlan | None = None):
+    session_plan = session_plan or session_plan_from_run_directory(run_dir)
+    data_logger = DataLogger(run_dir, session_plan=session_plan)
     grid = Grid()
     registry = Registry()
     physics = Physics(grid, registry)
     perception = Perception(grid, registry)
     ppo = PPO()
     evolution = Evolution(registry)
-    return data_logger, grid, registry, physics, perception, ppo, evolution
+    return session_plan, data_logger, grid, registry, physics, perception, ppo, evolution
 
 
-def build_fresh_runtime(run_dir: str) -> SimulationRuntime:
+def _attach_lifecycle_finalizer(runtime: SimulationRuntime) -> SimulationRuntime:
+    runtime.viewer.finalize_callback = lambda runtime=runtime: finalize_runtime(runtime)
+    return runtime
+
+
+def build_fresh_runtime(run_dir: str, session_plan: SessionPlan | None = None) -> SimulationRuntime:
     """
     Assemble a fresh simulation and viewer graph.
 
@@ -281,7 +314,10 @@ def build_fresh_runtime(run_dir: str) -> SimulationRuntime:
     """
 
     validate_runtime_config()
-    data_logger, grid, registry, physics, perception, ppo, evolution = _build_substrate_objects(run_dir)
+    session_plan, data_logger, grid, registry, physics, perception, ppo, evolution = _build_substrate_objects(
+        run_dir,
+        session_plan=session_plan,
+    )
 
     print("Generating procedural map...")
     add_random_walls(grid)
@@ -303,8 +339,9 @@ def build_fresh_runtime(run_dir: str) -> SimulationRuntime:
     )
     viewer = Viewer(engine)
 
-    return SimulationRuntime(
+    runtime = SimulationRuntime(
         run_dir=run_dir,
+        session_plan=session_plan,
         data_logger=data_logger,
         grid=grid,
         registry=registry,
@@ -315,9 +352,10 @@ def build_fresh_runtime(run_dir: str) -> SimulationRuntime:
         engine=engine,
         viewer=viewer,
     )
+    return _attach_lifecycle_finalizer(runtime)
 
 
-def build_resume_runtime(run_dir: str, bundle: dict) -> SimulationRuntime:
+def build_resume_runtime(run_dir: str, bundle: dict, session_plan: SessionPlan | None = None) -> SimulationRuntime:
     """
     Assemble a side-effect-minimal scaffold and restore a checkpoint into it.
 
@@ -326,7 +364,10 @@ def build_resume_runtime(run_dir: str, bundle: dict) -> SimulationRuntime:
     """
 
     validate_runtime_config()
-    data_logger, grid, registry, physics, perception, ppo, evolution = _build_substrate_objects(run_dir)
+    session_plan, data_logger, grid, registry, physics, perception, ppo, evolution = _build_substrate_objects(
+        run_dir,
+        session_plan=session_plan,
+    )
     engine = Engine(
         grid,
         registry,
@@ -351,8 +392,9 @@ def build_resume_runtime(run_dir: str, bundle: dict) -> SimulationRuntime:
     )
     restore_runtime_checkpoint(restore_target, bundle)
     viewer = Viewer(engine)
-    return SimulationRuntime(
+    runtime = SimulationRuntime(
         run_dir=run_dir,
+        session_plan=session_plan,
         data_logger=data_logger,
         grid=grid,
         registry=registry,
@@ -363,11 +405,12 @@ def build_resume_runtime(run_dir: str, bundle: dict) -> SimulationRuntime:
         engine=engine,
         viewer=viewer,
     )
+    return _attach_lifecycle_finalizer(runtime)
 
 
-def build_runtime(run_dir: str) -> SimulationRuntime:
+def build_runtime(run_dir: str, session_plan: SessionPlan | None = None) -> SimulationRuntime:
     """Backward-compatible fresh-run assembly surface."""
-    return build_fresh_runtime(run_dir)
+    return build_fresh_runtime(run_dir, session_plan=session_plan)
 
 
 __all__ = [

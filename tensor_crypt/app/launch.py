@@ -12,6 +12,7 @@ It intentionally does not own simulation rules.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ..checkpointing.atomic_checkpoint import manifest_path_for, resolve_latest_checkpoint_bundle
@@ -27,7 +28,11 @@ from ..checkpointing.resume_policy import (
 from ..checkpointing.runtime_checkpoint import load_runtime_checkpoint
 from ..config_bridge import cfg
 from ..runtime_config import apply_experimental_single_family_launch_defaults
-from ..telemetry.run_paths import create_run_directory
+from ..telemetry.run_paths import (
+    create_run_directory,
+    prepare_checkpoint_backed_session_plan,
+    update_session_metadata,
+)
 from .runtime import build_resume_runtime, build_runtime, setup_determinism
 
 __all__ = ["main"]
@@ -73,14 +78,38 @@ def main() -> None:
         source_checkpoint_path=source_checkpoint_path,
         source_manifest_path=source_manifest_for_report,
     )
-    run_dir = create_run_directory(session_metadata=session_metadata_from_report(report))
-    report_path = Path(run_dir) / getattr(
+    if not report["allowed"]:
+        run_dir = create_run_directory(session_metadata=session_metadata_from_report(report))
+        report_path = Path(run_dir) / getattr(
+            cfg.CHECKPOINT,
+            "COMPATIBILITY_REPORT_FILENAME",
+            DEFAULT_COMPATIBILITY_REPORT_FILENAME,
+        )
+        if cfg.CHECKPOINT.WRITE_COMPATIBILITY_REPORT:
+            write_resume_compatibility_report(report_path, report)
+        raise RuntimeError(
+            "Checkpoint launch rejected by resume policy: "
+            f"{report.get('failure_class')} (report: {report_path})"
+        )
+
+    session_plan = prepare_checkpoint_backed_session_plan(
+        report=report,
+        bundle=bundle,
+        source_checkpoint_path=source_checkpoint_path,
+        source_manifest_path=source_manifest_for_report,
+    )
+    run_dir = session_plan.lineage_root_dir
+    report_path = Path(session_plan.session_dir) / getattr(
         cfg.CHECKPOINT,
         "COMPATIBILITY_REPORT_FILENAME",
         DEFAULT_COMPATIBILITY_REPORT_FILENAME,
     )
     if cfg.CHECKPOINT.WRITE_COMPATIBILITY_REPORT:
         write_resume_compatibility_report(report_path, report)
+        update_session_metadata(
+            session_plan,
+            compatibility_report_path=os.path.relpath(report_path, start=Path(run_dir)),
+        )
 
     print(f"Launch mode requested: {requested_mode}")
     print(f"Launch mode resolved: {report.get('resolved_mode')}")
@@ -89,11 +118,5 @@ def main() -> None:
     print(f"Legacy contract inference: {report.get('legacy_contract_inference_used')}")
     print(f"Run directory: {run_dir}")
 
-    if not report["allowed"]:
-        raise RuntimeError(
-            "Checkpoint launch rejected by resume policy: "
-            f"{report.get('failure_class')} (report: {report_path})"
-        )
-
-    runtime = build_resume_runtime(run_dir, bundle)
+    runtime = build_resume_runtime(run_dir, bundle, session_plan=session_plan)
     runtime.viewer.run()

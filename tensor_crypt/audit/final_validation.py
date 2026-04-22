@@ -5,11 +5,17 @@ from __future__ import annotations
 import copy
 import dataclasses
 import hashlib
+import json
 from pathlib import Path
+import time
 from typing import Callable
 
+import h5py
+import pandas as pd
 import torch
 
+from ..app.lifecycle import finalize_runtime
+from ..app.runtime import build_resume_runtime
 from ..checkpointing.resume_policy import resolve_resume_request
 from ..checkpointing.runtime_checkpoint import (
     capture_runtime_checkpoint,
@@ -19,6 +25,8 @@ from ..checkpointing.runtime_checkpoint import (
     save_runtime_checkpoint,
 )
 from ..config_bridge import cfg
+from ..simulation.engine import SAVE_REASON_SCHEDULED_TICK, SAVE_REASON_SCHEDULED_WALLCLOCK, SAVE_REASON_SHUTDOWN
+from ..telemetry.run_paths import prepare_checkpoint_backed_session_plan
 
 
 def _restore_cfg(snapshot) -> None:
@@ -321,6 +329,218 @@ def run_stage1_resume_policy_probe(runtime_factory: Callable[[], object], checkp
         _restore_cfg(snapshot)
 
 
+def _checkpoint_manifests(run_dir: str | Path) -> list[dict]:
+    checkpoint_dir = Path(run_dir) / cfg.CHECKPOINT.DIRECTORY_NAME
+    manifests = []
+    for path in sorted(checkpoint_dir.glob(f"{cfg.CHECKPOINT.FILENAME_PREFIX}*{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}{cfg.CHECKPOINT.MANIFEST_FILENAME_SUFFIX}")):
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        payload["_manifest_path"] = str(path)
+        manifests.append(payload)
+    return manifests
+
+
+def run_wallclock_autosave_probe(runtime_factory: Callable[[], object]) -> dict:
+    snapshot = copy.deepcopy(cfg)
+    try:
+        cfg.CHECKPOINT.SAVE_EVERY_TICKS = 0
+        cfg.CHECKPOINT.ENABLE_WALLCLOCK_AUTOSAVE = True
+        cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_INTERVAL_SECONDS = 0.001
+        cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_MIN_TICKS_ADVANCED = 1
+        cfg.CHECKPOINT.WALLCLOCK_AUTOSAVE_WHILE_PAUSED = False
+        runtime = runtime_factory()
+        runtime.engine._wallclock_autosave_started_at = time.monotonic() - 1.0
+        runtime.engine.step()
+        first_count = len(_checkpoint_manifests(runtime.data_logger.run_dir))
+        runtime.engine.last_runtime_checkpoint_wallclock_time = time.monotonic() - 1.0
+        paused_result = runtime.engine.maybe_save_runtime_checkpoint_wallclock(paused=True)
+        manifests = _checkpoint_manifests(runtime.data_logger.run_dir)
+        reasons = [manifest.get("save_reason") for manifest in manifests]
+        return {
+            "match": (
+                SAVE_REASON_SCHEDULED_WALLCLOCK in reasons
+                and first_count == 1
+                and paused_result is None
+                and len(manifests) == first_count
+            ),
+            "reasons": reasons,
+            "manifest_count": len(manifests),
+            "paused_result": None if paused_result is None else str(paused_result),
+        }
+    finally:
+        _restore_cfg(snapshot)
+
+
+def run_shutdown_checkpoint_probe(runtime_factory: Callable[[], object]) -> dict:
+    snapshot = copy.deepcopy(cfg)
+    try:
+        cfg.CHECKPOINT.SAVE_EVERY_TICKS = 0
+        cfg.CHECKPOINT.ENABLE_SHUTDOWN_CHECKPOINT = True
+        runtime = runtime_factory()
+        runtime.engine.step()
+        result = finalize_runtime(runtime, close_reason="probe_shutdown")
+        second = finalize_runtime(runtime, close_reason="probe_shutdown_second")
+        manifests = _checkpoint_manifests(runtime.data_logger.run_dir)
+        reasons = [manifest.get("save_reason") for manifest in manifests]
+        return {
+            "match": (
+                SAVE_REASON_SHUTDOWN in reasons
+                and result.checkpoint_path is not None
+                and result.logger_closed
+                and second.already_finalized
+                and getattr(runtime.data_logger, "_closed", False)
+            ),
+            "first_result": result.__dict__,
+            "second_result": second.__dict__,
+            "reasons": reasons,
+        }
+    finally:
+        _restore_cfg(snapshot)
+
+
+def run_logger_close_once_probe(runtime_factory: Callable[[], object]) -> dict:
+    runtime = runtime_factory()
+    runtime.engine.step()
+    runtime.data_logger.close(
+        runtime.registry,
+        finalize_open_lives=False,
+        close_reason="probe_close_once",
+        close_tick=runtime.engine.tick,
+    )
+    runtime.data_logger.close(
+        runtime.registry,
+        finalize_open_lives=False,
+        close_reason="probe_close_once_second",
+        close_tick=runtime.engine.tick,
+    )
+    return {
+        "match": bool(getattr(runtime.data_logger, "_closed", False)),
+        "closed": bool(getattr(runtime.data_logger, "_closed", False)),
+    }
+
+
+def _save_source_checkpoint_for_stage2_probe(runtime_factory: Callable[[], object], checkpoint_name: str):
+    cfg.CHECKPOINT.LAUNCH_MODE = "fresh_run"
+    cfg.CHECKPOINT.LOAD_PATH = ""
+    cfg.CHECKPOINT.SAVE_EVERY_TICKS = 0
+    runtime = runtime_factory()
+    for _ in range(2):
+        runtime.engine.step()
+    checkpoint_path = Path(runtime.data_logger.run_dir) / cfg.CHECKPOINT.DIRECTORY_NAME / checkpoint_name
+    runtime.engine.publish_runtime_checkpoint(SAVE_REASON_SCHEDULED_TICK, force=True)
+    checkpoint_paths = sorted((Path(runtime.data_logger.run_dir) / cfg.CHECKPOINT.DIRECTORY_NAME).glob(f"{cfg.CHECKPOINT.FILENAME_PREFIX}*{cfg.CHECKPOINT.BUNDLE_FILENAME_SUFFIX}"))
+    checkpoint_path = checkpoint_paths[-1]
+    runtime.data_logger.close(
+        runtime.registry,
+        finalize_open_lives=False,
+        close_reason="probe_source_session_close",
+        close_tick=runtime.engine.tick,
+    )
+    bundle = load_runtime_checkpoint(checkpoint_path)
+    return runtime, checkpoint_path, bundle
+
+
+def run_resume_telemetry_continuation_probe(runtime_factory: Callable[[], object]) -> dict:
+    snapshot = copy.deepcopy(cfg)
+    try:
+        source_runtime, checkpoint_path, bundle = _save_source_checkpoint_for_stage2_probe(
+            runtime_factory,
+            "stage2_source.pt",
+        )
+        root_hdf_path = Path(source_runtime.data_logger.run_dir) / "simulation_data.hdf5"
+        root_hdf_mtime_before = root_hdf_path.stat().st_mtime_ns
+        report = resolve_resume_request(
+            requested_mode="resume_exact",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+        plan = prepare_checkpoint_backed_session_plan(
+            report=report,
+            bundle=bundle,
+            source_checkpoint_path=checkpoint_path,
+        )
+        cfg.CHECKPOINT.LAUNCH_MODE = "resume_exact"
+        cfg.CHECKPOINT.LOAD_PATH = str(checkpoint_path)
+        resumed = build_resume_runtime(plan.lineage_root_dir, bundle, session_plan=plan)
+        resumed.engine.step()
+        resumed.data_logger.close(
+            resumed.registry,
+            finalize_open_lives=False,
+            close_reason="probe_resume_session_close",
+            close_tick=resumed.engine.tick,
+        )
+
+        session_tick_path = Path(plan.telemetry_dir) / "tick_summary.parquet"
+        session_df = pd.read_parquet(session_tick_path)
+        with h5py.File(root_hdf_path, "r") as handle:
+            hdf5_session_group_exists = f"sessions/{plan.session_label}/agent_snapshots" in handle
+
+        return {
+            "match": (
+                Path(plan.lineage_root_dir) == Path(source_runtime.data_logger.run_dir)
+                and int(plan.session_id) >= 2
+                and session_tick_path.exists()
+                and hdf5_session_group_exists
+                and session_df["tick"].duplicated().sum() == 0
+                and root_hdf_path.stat().st_mtime_ns >= root_hdf_mtime_before
+            ),
+            "lineage_root_reused": str(plan.lineage_root_dir) == str(source_runtime.data_logger.run_dir),
+            "session_id": int(plan.session_id),
+            "session_tick_path": str(session_tick_path),
+            "hdf5_session_group_exists": hdf5_session_group_exists,
+            "duplicate_session_tick_rows": int(session_df["tick"].duplicated().sum()),
+        }
+    finally:
+        _restore_cfg(snapshot)
+
+
+def run_fork_vs_continue_telemetry_policy_probe(runtime_factory: Callable[[], object]) -> dict:
+    snapshot = copy.deepcopy(cfg)
+    try:
+        source_runtime, checkpoint_path, bundle = _save_source_checkpoint_for_stage2_probe(
+            runtime_factory,
+            "stage2_fork_source.pt",
+        )
+        exact_report = resolve_resume_request(
+            requested_mode="resume_exact",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+        exact_plan = prepare_checkpoint_backed_session_plan(
+            report=exact_report,
+            bundle=bundle,
+            source_checkpoint_path=checkpoint_path,
+        )
+        fork_report = resolve_resume_request(
+            requested_mode="fork_from_checkpoint",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+        fork_plan = prepare_checkpoint_backed_session_plan(
+            report=fork_report,
+            bundle=bundle,
+            source_checkpoint_path=checkpoint_path,
+        )
+        return {
+            "match": (
+                Path(exact_plan.lineage_root_dir) == Path(source_runtime.data_logger.run_dir)
+                and Path(fork_plan.lineage_root_dir) != Path(source_runtime.data_logger.run_dir)
+                and fork_plan.parent_lineage_root_dir == str(source_runtime.data_logger.run_dir)
+                and exact_plan.is_continuation
+                and fork_plan.is_fork
+            ),
+            "source_root": str(source_runtime.data_logger.run_dir),
+            "exact_root": str(exact_plan.lineage_root_dir),
+            "fork_root": str(fork_plan.lineage_root_dir),
+            "fork_parent_lineage_root": fork_plan.parent_lineage_root_dir,
+        }
+    finally:
+        _restore_cfg(snapshot)
+
+
 def _skipped_check(reason: str) -> dict:
     return {"enabled": False, "skipped": True, "reason": reason}
 
@@ -339,6 +559,7 @@ def run_final_validation_suite(
             "catastrophe": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "save_load_save": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "resume_policy": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
+            "stage2_lifecycle": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "all_passed": True,
             "skipped": True,
         }
@@ -349,6 +570,7 @@ def run_final_validation_suite(
         "catastrophe": _skipped_check("ENABLE_CATASTROPHE_REPRO_TESTS is disabled"),
         "save_load_save": _skipped_check("ENABLE_SAVE_LOAD_SAVE_TESTS is disabled"),
         "resume_policy": _skipped_check("ENABLE_RESUME_POLICY_TESTS is disabled"),
+        "stage2_lifecycle": _skipped_check("ENABLE_STAGE2_LIFECYCLE_TESTS is disabled"),
     }
 
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -369,6 +591,28 @@ def run_final_validation_suite(
         report["save_load_save"] = save_load_save_surface_signature(runtime_factory, checkpoint_path)
     if cfg.VALIDATION.ENABLE_RESUME_POLICY_TESTS:
         report["resume_policy"] = run_stage1_resume_policy_probe(runtime_factory, checkpoint_path)
+    if cfg.VALIDATION.ENABLE_STAGE2_LIFECYCLE_TESTS:
+        wallclock = run_wallclock_autosave_probe(runtime_factory)
+        shutdown = run_shutdown_checkpoint_probe(runtime_factory)
+        close_once = run_logger_close_once_probe(runtime_factory)
+        continuation = run_resume_telemetry_continuation_probe(runtime_factory)
+        fork_policy = run_fork_vs_continue_telemetry_policy_probe(runtime_factory)
+        report["stage2_lifecycle"] = {
+            "match": all(
+                [
+                    wallclock["match"],
+                    shutdown["match"],
+                    close_once["match"],
+                    continuation["match"],
+                    fork_policy["match"],
+                ]
+            ),
+            "wallclock_autosave": wallclock,
+            "shutdown_checkpoint": shutdown,
+            "logger_close_once": close_once,
+            "resume_telemetry_continuation": continuation,
+            "fork_vs_continue_policy": fork_policy,
+        }
 
     enabled_results = []
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -390,6 +634,8 @@ def run_final_validation_suite(
         )
     if cfg.VALIDATION.ENABLE_RESUME_POLICY_TESTS:
         enabled_results.append(bool(report["resume_policy"]["match"]))
+    if cfg.VALIDATION.ENABLE_STAGE2_LIFECYCLE_TESTS:
+        enabled_results.append(bool(report["stage2_lifecycle"]["match"]))
     report["all_passed"] = all(enabled_results) if enabled_results else True
     return report
 

@@ -109,6 +109,62 @@ def restore_rng_state(rng_state: dict) -> None:
         torch.cuda.set_rng_state_all(cuda_state)
 
 
+def _runtime_lifecycle_metadata(runtime) -> dict:
+    engine = runtime.engine
+    logger = getattr(runtime, "data_logger", None) or getattr(engine, "logger", None)
+    session_plan = getattr(logger, "session_plan", None)
+    save_reason = getattr(engine, "_checkpoint_capture_reason", None) or "manual_future_reserved"
+    capture_path = getattr(engine, "_checkpoint_capture_path", None)
+    if not cfg.CHECKPOINT.SAVE_REASON_LOGGING_ENABLED:
+        save_reason = None
+
+    last_successful_tick = int(getattr(engine, "last_runtime_checkpoint_tick", -1))
+    last_successful_path = getattr(engine, "last_runtime_checkpoint_path", None)
+    last_successful_reason = getattr(engine, "last_runtime_checkpoint_reason", None)
+    if capture_path is not None:
+        last_successful_tick = int(getattr(engine, "tick", last_successful_tick))
+        last_successful_path = str(capture_path)
+        last_successful_reason = save_reason
+
+    payload = {
+        "save_reason": save_reason,
+        "save_reason_version": 1,
+        "session_id": None,
+        "session_label": None,
+        "session_kind": None,
+        "lineage_root_run_dir": None,
+        "lineage_root_identifier": None,
+        "continued_from_session_id": None,
+        "launch_mode_requested": str(getattr(cfg.CHECKPOINT, "LAUNCH_MODE", "fresh_run")),
+        "launch_mode_resolved": str(getattr(cfg.CHECKPOINT, "LAUNCH_MODE", "fresh_run")),
+        "source_checkpoint_path": None,
+        "source_checkpoint_tick": None,
+        "last_successful_checkpoint_tick": last_successful_tick,
+        "last_successful_checkpoint_path": last_successful_path,
+        "last_successful_checkpoint_reason": last_successful_reason,
+    }
+    if session_plan is not None:
+        payload.update(
+            {
+                "session_id": int(session_plan.session_id),
+                "session_label": session_plan.session_label,
+                "session_kind": session_plan.session_kind,
+                "lineage_root_run_dir": str(session_plan.lineage_root_dir),
+                "lineage_root_identifier": Path(session_plan.lineage_root_dir).name,
+                "continued_from_session_id": session_plan.continued_from_session_id,
+                "launch_mode_requested": session_plan.launch_mode_requested,
+                "launch_mode_resolved": session_plan.launch_mode_resolved,
+                "source_checkpoint_path": session_plan.source_checkpoint_path,
+                "source_checkpoint_tick": session_plan.source_checkpoint_tick,
+                "telemetry_dir": str(session_plan.telemetry_dir),
+                "session_dir": str(session_plan.session_dir),
+                "is_continuation": bool(session_plan.is_continuation),
+                "is_fork": bool(session_plan.is_fork),
+            }
+        )
+    return payload
+
+
 def capture_runtime_checkpoint(runtime) -> dict:
     """Capture the runtime substrate needed for a deterministic, ownership-safe restore."""
     registry = runtime.registry
@@ -185,6 +241,7 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "observation_mode": str(cfg.PERCEPT.OBS_MODE),
             "experimental_branch_preset": bool(cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET),
             "experimental_branch_family": str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY),
+            "runtime_lifecycle": _runtime_lifecycle_metadata(runtime),
         },
     }
     bundle["metadata"]["resume_contract"] = build_checkpoint_contract_snapshot(bundle, cfg)
@@ -374,6 +431,10 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
         if manifest_fingerprint and cfg_obj.CHECKPOINT.STRICT_CONFIG_FINGERPRINT_VALIDATION:
             if manifest_fingerprint != _config_fingerprint(bundle):
                 raise ValueError("Checkpoint manifest config fingerprint does not match bundle")
+        manifest_reason = manifest.get("save_reason")
+        bundle_reason = bundle.get("metadata", {}).get("runtime_lifecycle", {}).get("save_reason")
+        if manifest_reason is not None and bundle_reason is not None and manifest_reason != bundle_reason:
+            raise ValueError("Checkpoint manifest save reason does not match bundle")
 
 
 def _move_optimizer_state_to_device(optimizer, device: str) -> None:
@@ -425,6 +486,15 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
         physics.refresh_static_wall_cache()
     runtime.engine.tick = int(bundle["engine_state"]["tick"])
     registry.tick_counter = int(runtime.engine.tick)
+    lifecycle = bundle.get("metadata", {}).get("runtime_lifecycle", {})
+    if cfg.CHECKPOINT.RESTORE_CHECKPOINT_BOOKKEEPING_ON_RESUME:
+        runtime.engine.last_runtime_checkpoint_tick = int(
+            lifecycle.get("last_successful_checkpoint_tick", runtime.engine.tick)
+            if lifecycle.get("last_successful_checkpoint_tick") is not None
+            else runtime.engine.tick
+        )
+        runtime.engine.last_runtime_checkpoint_path = lifecycle.get("last_successful_checkpoint_path")
+        runtime.engine.last_runtime_checkpoint_reason = lifecycle.get("last_successful_checkpoint_reason")
     runtime.engine.respawn_controller.last_respawn_tick = int(bundle["engine_state"]["respawn_last_tick"])
     runtime.engine.respawn_controller.restore_runtime_state(
         bundle["engine_state"].get("respawn_overlay_runtime_state")
