@@ -38,7 +38,7 @@ Maintainers, auditors, and readers tracing code references into documentation.
 | `tensor_crypt.checkpointing.runtime_checkpoint` | capture, validate, save, load, restore | yes | `docs/04_learning/04_checkpoint_visible_learning_state_and_restore_order.md` |
 | `tensor_crypt.telemetry.data_logger` | run ledgers and exports | yes | `docs/05_operations/04_telemetry_ledgers_snapshots_exports_and_lineage_graph.md` |
 | `tensor_crypt.telemetry.run_paths` | run-directory and metadata creation | yes | `docs/05_operations/02_run_directory_artifacts_and_file_outputs.md` |
-| `tensor_crypt.validation.final_validation` | validation probe suite | yes | `docs/05_operations/05_validation_determinism_resume_consistency_and_soak.md` |
+| `tensor_crypt.audit.final_validation` | validation probe suite | yes | `docs/05_operations/05_validation_determinism_resume_consistency_and_soak.md` |
 | `tensor_crypt.viewer.*` | UI loop, panels, colors, controls | yes | `docs/05_operations/01_viewer_ui_controls_hud_and_inspector_manual.md` |
 | `run.py` | root-level start surface | public root surface | `docs/02_system/00_repository_identity_entry_surfaces_and_public_contract.md` |
 | `main.py` | compatibility entrypoint | wrapper / root surface | `docs/02_system/00_repository_identity_entry_surfaces_and_public_contract.md` |
@@ -46,7 +46,7 @@ Maintainers, auditors, and readers tracing code references into documentation.
 
 ## 2. Test and script surfaces
 
-The dump also contains scripts and tests for:
+The repository also contains scripts and tests for:
 - benchmark runtime probing
 - long-form soak checks
 - checkpoint publication behavior

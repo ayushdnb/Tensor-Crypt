@@ -23,7 +23,7 @@ These labels are used throughout the bundle and should not be paraphrased away w
 
 | Label | Meaning |
 |---|---|
-| Active | The repository shows a current read path or behavior path. |
+| Active | A direct current read path or behavior path exists. |
 | Guarded | The surface is real, but accepted values or supported behavior are narrower than the public name alone suggests. |
 | Compatibility surface | The surface exists for import or entry-point continuity while canonical ownership lives elsewhere. |
 | Currently unread | The surface is present in configuration or compatibility code, but the current repository does not show a live runtime read path. |
@@ -75,7 +75,7 @@ Use the forms below when precision matters.
 | UID-owned PPO state | describing buffers, optimizers, or training state keyed by UID |
 | Canonical implementation module | naming the `tensor_crypt.*` owner of current logic |
 | Compatibility wrapper | naming root or alias surfaces such as `run.py`, `main.py`, `config.py`, `engine.*`, or `viewer.*` |
-| Current repository does not show a live read path | describing currently unread config or compatibility surfaces |
+| No live read path is documented in the current implementation | describing currently unread config or compatibility surfaces |
 | Adjacent background only | separating theory from implementation claims |
 
 ## Required Distinctions

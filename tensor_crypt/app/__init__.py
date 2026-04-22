@@ -1,1 +1,3 @@
-"""Application bootstrap layer for Tensor Crypt."""
+"""Application bootstrap package for Tensor Crypt."""
+
+__all__ = []

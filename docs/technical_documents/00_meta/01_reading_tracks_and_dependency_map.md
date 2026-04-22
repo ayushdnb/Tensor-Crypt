@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines practical reading orders for the audited Tensor Crypt technical-document bundle. It exists to keep readers from entering detail-heavy chapters without the identity, notation, or runtime-construction context those chapters depend on.
+This document defines practical reading orders for the Tensor Crypt technical-document bundle. It exists to keep readers from entering detail-heavy chapters without the identity, notation, or runtime-construction context those chapters depend on.
 
 ## Scope Boundary
 
@@ -10,7 +10,7 @@ This document is a navigation aid. It does not restate subsystem behavior in ful
 
 ## Evidence Basis
 
-The dependency map below is based on the current repository structure and on the implementation relationships verified during the documentation audit. In particular, the hard prerequisites reflect actual coupling among:
+The dependency map below follows the current repository structure and the implementation relationships visible in the checked-in runtime, tests, and operational surfaces. In particular, the hard prerequisites reflect actual coupling among:
 
 - runtime assembly in `tensor_crypt.app.launch` and `tensor_crypt.app.runtime`
 - identity and lineage ownership in `tensor_crypt.agents.state_registry`

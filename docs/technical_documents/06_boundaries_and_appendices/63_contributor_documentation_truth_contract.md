@@ -10,7 +10,7 @@ This document governs documentation work. It does not define runtime behavior by
 
 ## Evidence Basis
 
-This contract is derived from the repository audit recorded in [D99](../00_meta/99_documentation_audit_change_log.md) and from the terminology and boundary chapters that stabilize the bundle:
+This contract is derived from the repository's current source, tests, and from the terminology and boundary chapters that stabilize the bundle:
 
 - [D02](../00_meta/02_notation_glossary_and_shape_legend.md)
 - [D60](./60_implemented_behavior_vs_adjacent_theory.md)
@@ -64,7 +64,6 @@ For substantial documentation changes, contributors should re-check at least:
 ## Required Placement Rules
 
 - published technical chapters remain in the numbered public folders
-- planning prompts and authoring inputs remain under `98_authoring_inputs/`
 - figure or table assets, when added, belong under `99_assets/`
 
 ## Required Honesty About Uncertainty

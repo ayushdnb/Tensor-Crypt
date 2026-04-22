@@ -1,6 +1,6 @@
 # Schema Versions and Compatibility Surfaces
 
-> Scope: Summarize the explicit schema-version surfaces, wrapper layers, compatibility-sensitive contracts, and the main 'do not silently change' boundaries visible in the uploaded dump.
+> Scope: Summarize the explicit schema-version surfaces, wrapper layers, compatibility-sensitive contracts, and the main 'do not silently change' boundaries enforced by the current repository.
 
 ## Who this document is for
 Maintainers and auditors concerned with migration safety, checkpoint compatibility, and public import continuity.
@@ -21,7 +21,7 @@ Maintainers and auditors concerned with migration safety, checkpoint compatibili
 
 ## 1. Explicit schema-version surfaces
 
-The dump exposes schema-version fields for:
+The repository exposes schema-version fields for:
 - identity
 - observation
 - PPO state
@@ -75,7 +75,7 @@ The following boundaries should not change silently:
 - [Runtime config taxonomy and knob safety](../02_system/03_runtime_config_taxonomy_and_knob_safety.md)
 
 ## If debugging this, inspect…
-- [Generation ledger and audit trail](../00_program/99_generation_ledger_and_audit_trail.md)
+- [Module reference index](02_module_reference_index.md)
 
 ## Terms introduced here
 - `schema version`

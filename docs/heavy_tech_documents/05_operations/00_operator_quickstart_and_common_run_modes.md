@@ -1,6 +1,6 @@
 # Operator Quickstart and Common Run Modes
 
-> Scope: Provide a conservative startup guide for launching the repository through its public surface and understanding the common operating modes visible in the uploaded dump.
+> Scope: Provide a conservative startup guide for launching the repository through its public surface and understanding the common operating modes exposed by the checked-in runtime, scripts, and tests.
 
 ## Who this document is for
 Operators, maintainers, and technical readers who need actionable procedures and conservative operational guidance.
@@ -22,7 +22,7 @@ Operators, maintainers, and technical readers who need actionable procedures and
 
 ## 1. Canonical startup route
 
-Use the repository-root launch surface that routes into `tensor_crypt.app.launch.main`. The dump identifies `run.py` as the canonical root-level start surface for repository users. The compatibility entrypoint `main.py` also forwards into the same canonical launch path.
+Use the repository-root launch surface that routes into `tensor_crypt.app.launch.main`. The repository defines `run.py` as the canonical root-level start surface for repository users. The compatibility entrypoint `main.py` also forwards into the same canonical launch path.
 
 ## 2. Expected startup actions
 
@@ -34,16 +34,16 @@ A normal interactive launch should:
 5. assemble the runtime graph
 6. launch the viewer
 
-## 3. Common run modes visible in the dump
+## 3. Common run modes exposed by the repository
 
 ### Interactive viewer run
 Use the normal launch path. This is the standard operator mode.
 
 ### Headless benchmark harness
-The dump contains a benchmark script with arguments for ticks, warmup ticks, device, grid size, agent count, wall count, H-zone count, PPO settings, checkpoint cadence, and experimental family-vmap toggles. Use this when the goal is reproducible measurement rather than visual inspection.
+The repository includes a benchmark script with arguments for ticks, warmup ticks, device, grid size, agent count, wall count, H-zone count, PPO settings, checkpoint cadence, and experimental family-vmap toggles. Use this when the goal is reproducible measurement rather than visual inspection.
 
 ### Headless soak audit
-The dump also contains a soak runner that:
+The repository also includes a soak runner that:
 - runs for many ticks
 - checks invariants
 - periodically validates checkpoint save/load surfaces
@@ -60,7 +60,7 @@ This is an integrity mode, not a throughput benchmark.
 
 ## 5. Dependency note
 
-The test surface in the dump expects `pygame-ce` rather than the legacy `pygame` package name in dependency surfaces. Treat viewer startup issues through that lens first.
+The test surface and packaging metadata expect `pygame-ce` rather than the legacy `pygame` package name in dependency surfaces. Treat viewer startup issues through that lens first.
 
 
 ## Read next

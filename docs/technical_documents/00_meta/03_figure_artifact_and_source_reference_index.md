@@ -92,7 +92,7 @@ When discussing checkpoint publication semantics, cite both the file name and th
 
 ## Figure and Asset Honesty
 
-The current audit did not find a checked-in publication figure corpus under `docs/technical_documents/99_assets/` that should be treated as present technical evidence. The `diagrams/`, `figure_sources/`, and `tables/` directories are therefore reserved locations rather than evidence of existing reviewed figures.
+The repository does not currently include a reviewed publication figure corpus under `docs/technical_documents/99_assets/`. The `diagrams/`, `figure_sources/`, and `tables/` directories are therefore reserved locations rather than evidence of existing reviewed figures.
 
 If future work adds figures:
 

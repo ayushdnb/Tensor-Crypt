@@ -1,6 +1,6 @@
 # Validation, Determinism, Resume Consistency, and Soak
 
-> Scope: Explain the repository’s credibility infrastructure: validation probes, deterministic run checks, resume-consistency tests, save-load-save checks, soak audits, and broader automated test coverage visible in the dump.
+> Scope: Explain the repository's credibility infrastructure: validation probes, deterministic run checks, resume-consistency tests, save-load-save checks, soak audits, and broader automated test coverage present in the repository tree.
 
 ## Who this document is for
 Operators, maintainers, and technical readers who need actionable procedures and conservative operational guidance.
@@ -45,9 +45,9 @@ This check verifies that saving, loading, restoring, and recapturing do not sile
 
 The soak runner is a long-form invariant audit. It periodically validates runtime checkpoint surfaces while also checking that registry tensors, grid tensors, parameter tensors, and ownership maps remain finite and aligned.
 
-## 6. Automated test breadth visible in the dump
+## 6. Automated test breadth present in the repository
 
-The uploaded dump includes a broad automated test surface. The table below summarizes visible categories by test-name evidence.
+The repository contains a broad automated test surface. The table below summarizes the checked-in categories by test-name evidence.
 
 
 ## Read next

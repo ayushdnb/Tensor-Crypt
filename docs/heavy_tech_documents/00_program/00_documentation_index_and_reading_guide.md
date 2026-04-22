@@ -23,9 +23,9 @@ All readers: beginners, operators, maintainers, technical auditors, and public r
 
 ## 1. Why this corpus exists
 
-Tensor Crypt is not a single-script toy environment. The code dump shows a canonical `tensor_crypt` package, repository-root entry surfaces, compatibility wrappers, a dataclass-driven runtime configuration surface, slot-backed execution state, UID-owned identity and PPO state, checkpoint manifests and latest pointers, an operator-facing viewer, and explicit validation harnesses. This corpus is therefore structured as a technical book, an operator manual, and a reference system rather than as a single README-style narrative.
+Tensor Crypt is not organized as a single-script toy environment. The repository is structured around a canonical `tensor_crypt` package, repository-root entry surfaces, compatibility wrappers, a dataclass-governed runtime configuration surface, slot-backed execution state, UID-owned identity and PPO state, checkpoint manifests and latest pointers, an operator-facing viewer, and explicit validation harnesses. This corpus is therefore organized as a technical book, an operator manual, and a reference system rather than as a single README-style narrative.
 
-The corpus is designed around one central discipline: **teach broadly, but state repository truth conservatively**. Foundations chapters may explain mathematics or reinforcement learning from first principles. System, mechanics, learning, and operations chapters document only what the available repository evidence supports.
+The corpus is designed around one central discipline: **teach broadly, but state repository truth conservatively**. Foundations chapters may explain mathematics or reinforcement learning from first principles. System, mechanics, learning, and operations chapters document only implemented behavior, explicit validation surfaces, and narrow consequences that follow from them.
 
 ## 2. Layer model
 
@@ -105,7 +105,6 @@ Mermaid diagrams, tables, and schematic panels are used only where they reduce a
 
 - `docs/00_program/01_documentation_evidence_policy_and_corpus_conventions.md` — how truth is classified and how future maintainers should update the corpus.
 - `docs/00_program/02_glossary_notation_and_schema_legend.md` — canonical term definitions, notation rules, and schema legend.
-- `docs/00_program/99_generation_ledger_and_audit_trail.md` — how this corpus was generated and audited from the available evidence.
 
 ## Read next
 - [Evidence policy and corpus conventions](01_documentation_evidence_policy_and_corpus_conventions.md)

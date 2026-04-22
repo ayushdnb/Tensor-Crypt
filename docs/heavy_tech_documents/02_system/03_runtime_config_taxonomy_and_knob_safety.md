@@ -1,6 +1,6 @@
 # Runtime Config Taxonomy and Knob Safety
 
-> Scope: Organize the dataclass-driven runtime configuration surface by semantics and safety class instead of presenting it as one undifferentiated field dump.
+> Scope: Organize the dataclass-driven runtime configuration surface by semantics and safety class instead of presenting it as one undifferentiated field listing.
 
 ## Who this document is for
 Operators, maintainers, and auditors who need to know which knobs are active, guarded, experimental, or currently unread.
@@ -10,7 +10,7 @@ Operators, maintainers, and auditors who need to know which knobs are active, gu
 - safety classes for config fields
 - selected high-impact knobs by section
 - runtime-validated enumerations
-- how to read comment-labeled dead or guarded fields conservatively
+- how to read guarded or currently unread fields conservatively
 
 ## What this document does not cover
 - an exhaustive per-field explanation of every low-impact presentation toggle
@@ -23,10 +23,10 @@ Operators, maintainers, and auditors who need to know which knobs are active, gu
 
 ## 1. Why a taxonomy is necessary
 
-The runtime configuration surface is large enough that a raw dataclass listing is misleading. The uploaded dump itself uses comment labels such as:
+The runtime configuration surface is large enough that a raw dataclass listing is misleading. The repository itself uses comment labels such as:
 - active runtime knob
 - guarded compatibility surface
-- currently unread / effectively dead
+- currently unread
 - experimental runtime knob
 - active safety knob with an explicit dependency constraint
 
@@ -38,13 +38,13 @@ A serious operator manual must preserve those distinctions instead of flattening
 | --- | --- |
 | active runtime knob | A field directly intended to alter live runtime behavior |
 | guarded compatibility surface | A field exists, but the runtime validation path currently accepts only a constrained subset of values |
-| currently unread / effectively dead | A documented field exists, but the uploaded dump does not show a direct read on the active path |
+| currently unread | A documented field exists, but the current implementation does not expose a direct read on the active path |
 | experimental runtime knob | A field gates an optional, explicitly experimental path |
 | active safety knob | A field enables or tightens validation or publication guarantees |
 
 ## 3. Section summary
 
-| Section | Active-like fields | Guarded fields | Unread/dead fields | Notes |
+| Section | Active-like fields | Guarded fields | Currently unread fields | Notes |
 | --- | ---: | ---: | ---: | --- |
 | `SimConfig` | 6 | 1 | 1 | semantic owner section |
 | `GridConfig` | 3 | 0 | 1 | semantic owner section |
@@ -87,7 +87,7 @@ A serious operator manual must preserve those distinctions instead of flattening
 ### 4.6 Catastrophe and viewer
 `CatastropheConfig` controls scheduler modes, overlap policy, duration policy, and per-type tables. `ViewerConfig` mostly controls presentation and interaction.
 
-## 5. Runtime-validated enumerations visible in the dump
+## 5. Runtime-validated enumerations enforced by the current implementation
 
 | Validation surface | Supported values |
 | --- | --- |
@@ -123,7 +123,7 @@ A serious operator manual must preserve those distinctions instead of flattening
 | `MAX_SPAWNS_PER_CYCLE` | active runtime knob | active runtime knob. Upper bound on births emitted in one respawn cycle. Raise for more aggressive population recovery. |
 | `POPULATION_FLOOR` | active runtime knob | active runtime knob. Soft lower population threshold that triggers recovery behavior. If live population falls below this, the controller enters floor-recovery logic. |
 | `POPULATION_CEILING` | active runtime knob | active runtime knob. Upper population ceiling for births. No births are emitted once live population is at or above this value. |
-| `MODE` | guarded compatibility surface | Prompt 5 reproduction control surface. guarded compatibility surface. Non-supported non-default values are rejected during runtime validation rather than being silently accepted... |
+| `MODE` | guarded compatibility surface | guarded compatibility surface. Non-supported non-default values are rejected during runtime validation rather than being silently accepted... |
 | `ANCHOR_PARENT_SELECTOR` | active runtime knob | active runtime knob. Placement-anchor selection policy. Supported values in code are `"brain_parent"`, `"trait_parent"`, `"random_parent"`, and `"fitter_of_two"`. This changes w... |
 | `EXTINCTION_POLICY` | active runtime knob | active runtime knob. What to do when live population drops below the minimum needed for binary reproduction. Supported policies are `"fail_run"`, `"seed_bank_bootstrap"`, and `"... |
 | `BIRTH_HP_MODE` | active runtime knob | active runtime knob. Initial HP policy for newborn agents. Supported values are `"full"` and `"fraction"`. Use `fraction` when you want newborn fragility. |
@@ -170,7 +170,7 @@ A serious operator manual must preserve those distinctions instead of flattening
 | `WINDOW_WIDTH` | active runtime knob | active runtime knob. Initial viewer window width in pixels. Pure presentation knob. |
 | `WINDOW_HEIGHT` | active runtime knob | active runtime knob. Initial viewer window height in pixels. Pure presentation knob. |
 | `FPS` | active runtime knob | active runtime knob. Viewer frame-rate target. Higher values make the UI smoother but demand more rendering work. |
-| `SHOW_CATASTROPHE_PANEL` | active runtime knob | Prompt 6 viewer catastrophe surfaces. active runtime knob. Whether the viewer shows the catastrophe panel. Presentation-only. |
+| `SHOW_CATASTROPHE_PANEL` | active runtime knob | active runtime knob. Whether the viewer shows the catastrophe panel. Presentation-only. |
 | `SHOW_CATASTROPHE_OVERLAY` | active runtime knob | active runtime knob. Whether catastrophe overlays are shown in the viewer. Presentation-only. |
 | `SHOW_CATASTROPHE_STATUS_IN_HUD` | active runtime knob | active runtime knob. Whether catastrophe state appears in the HUD/status strip. Presentation-only. |
 

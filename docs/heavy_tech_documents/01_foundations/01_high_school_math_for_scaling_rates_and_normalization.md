@@ -23,7 +23,7 @@ Readers building prerequisite knowledge before entering repository-specific chap
 
 ## 1. Ratios are the basic language of the repository
 
-The code dump repeatedly converts raw quantities into bounded fractions:
+Tensor Crypt repeatedly converts raw quantities into bounded fractions:
 - HP becomes `hp / hp_max`
 - position becomes `x / (W - 1)` and `y / (H - 1)`
 - age becomes `age_ticks / AGE_NORM_TICKS`

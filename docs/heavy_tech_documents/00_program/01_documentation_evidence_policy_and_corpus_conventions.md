@@ -22,20 +22,19 @@ Maintainers, auditors, and any reader who wants to understand how the corpus dis
 
 ## 1. Source-of-truth order used by this corpus
 
-This corpus was generated against the following precedence order:
+This corpus is maintained against the following precedence order:
 
-1. live repository files visible in the workspace, if available
-2. the attached master specification
-3. the attached repository code dump
-4. official external sources, only where narrowly needed
-5. general background knowledge, only for foundations content
+1. checked-in repository files visible in the workspace
+2. repository tests, utility scripts, and packaging metadata
+3. official external sources, only where narrowly needed
+4. general background knowledge, only for foundations content
 
-For the present corpus build, the available workspace contained the attached specification and the attached repository dump, but not a directly inspectable live repository tree. The audit trail records that limitation explicitly. No repository-mechanics claim in the corpus should be read as having been validated against absent live files.
+The present corpus build is grounded in a directly inspectable repository tree. Implementation claims are therefore written against checked-in source, tests, scripts, and repository metadata rather than against detached secondary material.
 
 ## 2. Evidence taxonomy
 
 ### 2.1 Repository-evidenced fact
-A statement grounded directly in the available code dump, configuration comments, control flow, docstrings, tests, or helper surfaces.
+A statement grounded directly in checked-in source files, configuration comments, control flow, docstrings, tests, or helper surfaces.
 
 ### 2.2 Repository-grounded interpretation
 A higher-level explanation derived from several repository facts without adding new mechanics.
@@ -47,7 +46,7 @@ General mathematics, machine learning, reinforcement learning, systems, or simul
 Conservative operational or maintainer guidance derived from the repository’s safety posture.
 
 ### 2.5 Unknown or unverified
-Anything not established by the available repository evidence.
+Anything not established by the checked-in repository or explicitly separated background context.
 
 > **Rule**
 > Background explanation must never be written as repository fact. Unknowns must remain unknown.
@@ -62,22 +61,22 @@ The corpus uses the following labels consistently.
 | Public entry surface | A repository-root launch or public import path | Documented as user-facing, but not as subsystem owner unless the code proves ownership |
 | Compatibility wrapper | Thin re-export or legacy import bridge | Documented explicitly as non-canonical |
 | Guarded compatibility surface | A config field or selector that exists but is runtime-constrained | Listed, but not narrated as an active alternate behavior |
-| Currently unread / effectively dead | A documented field present in config structure but not directly read in the uploaded dump | Included for audit honesty; not treated as active behavior |
+| Currently unread | A documented field present in config structure but not read on the current runtime or validation path | Included for honesty; not narrated as active behavior |
 
 ## 4. Unknown handling policy
 
 > **Preferred failure mode**
 > Omit unsupported claims rather than fill gaps with plausible prose.
 
-If the dump does not prove something, the document should say one of the following:
-- the uploaded repository dump does not prove this
-- the live workspace did not expose this file directly
-- the current code dump suggests this boundary, but the exact runtime breadth should be treated as unverified
+If the repository does not establish something, the document should say one of the following:
+- the current runtime does not establish this
+- the public field remains present, but no live read path is documented here
+- this boundary is inferred conservatively from the current implementation
 - this is background explanation rather than repository fact
 
 ## 5. Diagram drift policy
 
-Diagrams are intentionally stored as documentation-native assets under `docs/assets/`. Every diagram must declare:
+Diagrams are intentionally stored as documentation-native assets under `docs/heavy_tech_documents/assets/`. Every diagram must declare:
 - owning document
 - abstraction level
 - intentional omissions
@@ -91,7 +90,7 @@ Diagram edits are required whenever:
 
 ## 6. Terminology governance
 
-The glossary is authoritative for high-load terms such as `UID`, `slot`, `canonical observation contract`, `bloodline family`, `bootstrap`, `latest pointer`, and `compatibility wrapper`. First heavy use of a term in a document should match glossary wording closely.
+The glossary is authoritative for high-load terms such as `UID`, `slot`, `canonical observation contract`, `bloodline family`, `bootstrap`, `latest pointer`, `compatibility wrapper`, and `currently unread`. First heavy use of a term in a document should match glossary wording closely.
 
 ## 7. Document structure conventions
 
@@ -145,7 +144,6 @@ The following changes should trigger documentation review immediately.
 - [Schema versions and compatibility surfaces](../07_reference/01_schema_versions_and_compatibility_surfaces.md)
 
 ## Related reference
-- [Generation ledger and audit trail](99_generation_ledger_and_audit_trail.md)
 - [Cross-link integrity and publication checklist](../07_reference/98_crosslink_integrity_and_publication_checklist.md)
 - [Repository truth gaps and explicit unknowns](../07_reference/97_repository_truth_gaps_and_explicit_unknowns.md)
 

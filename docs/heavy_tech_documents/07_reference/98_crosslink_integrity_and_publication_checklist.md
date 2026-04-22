@@ -34,9 +34,9 @@ A local scan over markdown links in the generated corpus was used to verify inte
 | Learning layer exists | pass | PPO ownership, inference path, and checkpoint-visible state documented |
 | Operations layer exists | pass | quickstart, viewer, outputs, checkpoints, validation, benchmarking, troubleshooting present |
 | Game manual exists | pass | readable rulebook present |
-| Reference layer exists | pass | config, schema, module, FAQ, audit artifacts present |
+| Reference layer exists | pass | config, schema, module, FAQ, and verification artifacts present |
 | Diagram assets exist | pass | system, mechanics, learning, operations assets included |
-| Audit ledger exists | pass | generation ledger included |
+| Revision ledger exists | pass | corpus revision ledger included |
 | Explicit truth-gap note exists | pass | uncertainty recorded transparently |
 | Unsupported empirical claims avoided | pass | corpus remains conservative |
 | ZIP packaging support artifacts present | pass | corpus manifest and build manifest included |
@@ -52,14 +52,11 @@ The corpus supports:
 
 ## 4. Known cautions
 
-- This corpus was generated from the attached specification and code dump rather than from a directly inspectable live repository tree.
-- The documentation therefore remains conservative about live-file drift, README breadth, and non-Python assets not visible in the workspace.
+- This corpus documents the current checked-in repository state rather than historical or unpublished states.
+- The documentation therefore remains conservative about future intent, unpublished figures, and empirical claims not backed by checked-in artifacts.
 ## Read next
 - [Corpus manifest](../07_reference/99_corpus_manifest.md)
 - [Repository truth gaps and explicit unknowns](../07_reference/97_repository_truth_gaps_and_explicit_unknowns.md)
-
-## Related reference
-- [Generation ledger and audit trail](../00_program/99_generation_ledger_and_audit_trail.md)
 
 ## If debugging this, inspect…
 - [Module reference index](02_module_reference_index.md)

@@ -38,7 +38,7 @@ The observation surface is already engineered into dense feature tensors. That m
 
 ## 3. Layer choices matter
 
-The code dump exposes per-family choices for:
+The family specifications expose per-family choices for:
 - hidden widths
 - activation
 - normalization placement
@@ -55,7 +55,7 @@ Some families separate ray-derived features from scalar features before mixing t
 
 ## 5. Parameter count is descriptive, not evaluative
 
-A larger parameter count does not automatically imply a better family. It only tells you how much trainable capacity the instantiated family contains. The viewer inspector exposes parameter count because it is operationally informative, not because the code dump proves one family is superior.
+A larger parameter count does not automatically imply a better family. It only tells you how much trainable capacity the instantiated family contains. The viewer inspector exposes parameter count because it is operationally informative, not because parameter count alone establishes family superiority.
 
 
 ## Why this matters for Tensor Crypt

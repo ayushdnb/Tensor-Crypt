@@ -23,7 +23,7 @@ Technical readers, maintainers, and operators who need precise repository behavi
 
 ## 1. Action surface
 
-The brain emits logits over the configured action dimension, which the code dump sets to `9`. The physics layer defines nine direction choices:
+The brain emits logits over the configured action dimension, which the repository sets to `9`. The physics layer defines nine direction choices:
 - stay
 - the eight Moore-neighborhood directions
 

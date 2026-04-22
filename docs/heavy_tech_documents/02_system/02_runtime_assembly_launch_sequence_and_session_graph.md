@@ -54,7 +54,7 @@ The runtime builder assembles the following major graph:
 12. `Viewer`
 
 > **Invariant**
-> The code dump explicitly marks the order of map generation, initial spawn, engine construction, and viewer construction as stability-sensitive unless semantics are being changed intentionally.
+> Runtime assembly treats the order of map generation, initial spawn, engine construction, and viewer construction as stability-sensitive unless simulation semantics are being changed intentionally.
 
 ## 4. Why launch order matters
 

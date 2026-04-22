@@ -9,7 +9,7 @@ Technical readers, maintainers, and operators who need a correct top-level model
 - the repository’s architectural center of gravity
 - repository-root entry surfaces and what they do
 - the difference between launch convenience and canonical ownership
-- the public contract implied by the available code dump
+- the public contract expressed by the checked-in entry surfaces and package boundaries
 
 ## What this document does not cover
 - full runtime assembly order
@@ -22,7 +22,7 @@ Technical readers, maintainers, and operators who need a correct top-level model
 
 ## 1. What the repository is
 
-The available evidence presents Tensor Crypt as a simulation-and-learning codebase built around:
+Tensor Crypt is a simulation-and-learning codebase built around:
 - a canonical `tensor_crypt` implementation package
 - repository-root entry surfaces such as `run.py`, `main.py`, and `config.py`
 - legacy compatibility wrappers for older import paths
@@ -36,7 +36,7 @@ This is therefore best understood as a repository with **application**, **simula
 
 ## 2. Public launch and import surfaces
 
-The code dump explicitly exposes:
+The public repository surface exposes:
 - `run.py` as the canonical root-level start surface for repository users
 - `main.py` as a repository-root compatibility entrypoint that calls `tensor_crypt.app.launch.main`
 - `config.py` as a public compatibility wrapper over the canonical runtime configuration
@@ -55,7 +55,7 @@ A practical public contract in this repository includes:
 
 ## 4. Architecture center of gravity
 
-The code dump’s package docstring states plainly that the canonical implementation lives under `tensor_crypt`. That single sentence matters because it prevents several documentation errors:
+The package docstring states plainly that the canonical implementation lives under `tensor_crypt`. That sentence matters because it prevents several documentation errors:
 - treating root-level scripts as subsystem owners
 - narrating compatibility wrappers as if they were the real modules
 - flattening the architecture into a vague “repo files” story

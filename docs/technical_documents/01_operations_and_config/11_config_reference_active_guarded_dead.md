@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document classifies the public configuration surface in `tensor_crypt.runtime_config` according to current repository evidence. Its goal is to prevent operators and maintainers from treating every exported dataclass field as equally live, equally supported, or equally safe to edit.
+This document classifies the public configuration surface in `tensor_crypt.runtime_config` according to current implementation behavior. Its goal is to prevent operators and maintainers from treating every exported dataclass field as equally live, equally supported, or equally safe to edit.
 
 ## Scope Boundary
 
@@ -27,10 +27,10 @@ The classifications below were verified against the current repository, with emp
 
 | Label | Meaning |
 |---|---|
-| Active | The current repository shows a direct runtime or validation read path. |
+| Active | A direct runtime or validation read path exists. |
 | Guarded | The field is active, but the accepted values or semantics are narrower than the public name suggests. |
 | Compatibility surface | The field or module exists to preserve continuity while canonical ownership lives elsewhere. |
-| Currently unread | The field is present in public config, but the current repository audit did not find a live runtime read path. |
+| Currently unread | The field is present in public config, but no live runtime or validation path reads it in the current implementation. |
 
 ## Operator-Safe Subset
 

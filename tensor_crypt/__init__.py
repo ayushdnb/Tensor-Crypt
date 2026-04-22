@@ -1,7 +1,9 @@
 """Tensor Crypt implementation package.
 
-The repository uses a single implementation root at ``tensor_crypt/``.
-Repository-root ``config.py``, ``run.py``, and ``main.py`` remain public entry
-surfaces, while legacy ``engine.*`` and ``viewer.*`` imports are preserved
-through thin compatibility modules.
+The canonical implementation lives under `tensor_crypt`. Repository-root
+`config.py`, `run.py`, and `main.py` remain public entry surfaces, and legacy
+`engine.*` and `viewer.*` imports remain available through thin compatibility
+modules.
 """
+
+__all__ = []

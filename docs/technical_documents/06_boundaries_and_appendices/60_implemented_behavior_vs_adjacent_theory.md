@@ -41,7 +41,7 @@ When evidence is strong, state the behavior directly.
 
 When evidence is limited, use wording such as:
 
-- "the current repository shows"
+- "the current implementation defines"
 - "the active runtime validates"
 - "the public field remains present, but the current runtime does not read it"
 - "background only"

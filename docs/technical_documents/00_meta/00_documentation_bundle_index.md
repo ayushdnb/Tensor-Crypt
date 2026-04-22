@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the entry point for the audited Tensor Crypt technical-document bundle in `docs/technical_documents/`. It defines the publication hierarchy, explains how the bundle is partitioned, and identifies which materials are normative for implementation-truth claims.
+This document is the entry point for the Tensor Crypt technical-document bundle in `docs/technical_documents/`. It defines the publication hierarchy, explains how the bundle is partitioned, and identifies which materials are normative for implementation-truth claims.
 
 This document does not explain subsystem behavior in depth. Runtime mechanics, learning logic, artifact semantics, and validation methods are owned by the later chapters cited below.
 
@@ -12,15 +12,13 @@ This index governs the technical-document bundle only. It does not replace the r
 
 ## Evidence Basis
 
-The bundle has been audited against the current repository tree, with special reliance on:
+The bundle is grounded in the current repository tree, with primary reliance on:
 
 - canonical runtime and package surfaces under `tensor_crypt/`
 - compatibility wrappers at repository root and under `engine/` and `viewer/`
 - tests under `tests/`
 - utility scripts under `scripts/`
 - the current `pyproject.toml`, `requirements.txt`, and generated-artifact helpers
-
-Planning prompts and authoring notes preserved in `98_authoring_inputs/` are not implementation authority.
 
 ## Bundle Structure
 
@@ -33,7 +31,6 @@ docs/technical_documents/
     01_reading_tracks_and_dependency_map.md
     02_notation_glossary_and_shape_legend.md
     03_figure_artifact_and_source_reference_index.md
-    99_documentation_audit_change_log.md
   01_operations_and_config/
     10_operator_runbook_and_game_manual.md
     11_config_reference_active_guarded_dead.md
@@ -60,9 +57,6 @@ docs/technical_documents/
     61_background_math_python_pytorch_and_rl_appendix.md
     62_equations_shapes_and_contract_reference.md
     63_contributor_documentation_truth_contract.md
-  98_authoring_inputs/
-    documentation_bundle_master_plan*.md
-    prompt_A*.md
   99_assets/
     diagrams/
     figure_sources/
@@ -79,7 +73,6 @@ These documents define navigation, terminology, reference conventions, and the d
 - [D01](./01_reading_tracks_and_dependency_map.md): recommended reading paths and dependency order
 - [D02](./02_notation_glossary_and_shape_legend.md): shared vocabulary, status labels, and shape notation
 - [D03](./03_figure_artifact_and_source_reference_index.md): figure, table, artifact, and code-reference conventions
-- [D99](./99_documentation_audit_change_log.md): audit log for the present repair pass
 
 ### 01 Operations and config
 
@@ -137,18 +130,17 @@ The following labels are used consistently across the bundle.
 
 | Label | Meaning |
 |---|---|
-| Active | The repository shows a current read path or behavior path for the surface. |
+| Active | A direct current read path or behavior path exists for the surface. |
 | Guarded | The surface is real, but the accepted values, call paths, or semantics are narrower than the public name alone suggests. |
 | Compatibility surface | The surface exists to preserve imports, entry points, or file names, but the canonical implementation lives elsewhere. |
-| Currently unread | The configuration or compatibility surface is present, but the current repository does not show a live runtime read path. |
+| Currently unread | The configuration or compatibility surface is present, but no live runtime read path is documented in the current implementation. |
 | Adjacent background | Material included for orientation or theory only; it does not claim current implementation. |
 
 These labels are defined more fully in [D02](./02_notation_glossary_and_shape_legend.md) and applied in [D11](../01_operations_and_config/11_config_reference_active_guarded_dead.md) and [D60](../06_boundaries_and_appendices/60_implemented_behavior_vs_adjacent_theory.md).
 
 ## Publication Notes
 
-- `98_authoring_inputs/` is retained for traceability, but it is not part of the public technical narrative.
-- `99_assets/` currently provides reserved locations for diagrams, source tables, and figure inputs. The audit did not find a checked-in figure corpus that should be treated as present publication evidence.
+- `99_assets/` currently provides reserved locations for diagrams, source tables, and figure inputs. No reviewed figure corpus is currently checked in there, so the directories remain reserved publication locations rather than evidentiary assets.
 - The bundle intentionally prefers direct code and test references over speculative architecture prose.
 
 ## Recommended Starting Points

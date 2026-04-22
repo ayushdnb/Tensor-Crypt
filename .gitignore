@@ -63,6 +63,7 @@ codes/
 outputs/
 results/
 checkpoints/
+benchmark*.json
 **/brains/selected_exports/
 renders/
 videos/
@@ -77,6 +78,7 @@ public_surface_cleanup_notes.md
 /Implement.md
 /Documentation.md
 /AGENTS.md
+/tensor_crypt_forensic_audit_report.md
 /tensor_crypt_stage3_patch_guide.md
 /prompt_3_viewer_repo_cleanup_docs_push*.md
 /*_source_dump*.txt

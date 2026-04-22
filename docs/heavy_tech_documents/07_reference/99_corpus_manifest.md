@@ -31,7 +31,6 @@ Auditors, maintainers, and readers who want a concise inventory of the generated
 - `docs/00_program/00_documentation_index_and_reading_guide.md`
 - `docs/00_program/01_documentation_evidence_policy_and_corpus_conventions.md`
 - `docs/00_program/02_glossary_notation_and_schema_legend.md`
-- `docs/00_program/99_generation_ledger_and_audit_trail.md`
 
 ### `01_foundations`
 
@@ -120,9 +119,6 @@ Auditors, maintainers, and readers who want a concise inventory of the generated
 ## Read next
 - [Cross-link integrity and publication checklist](../07_reference/98_crosslink_integrity_and_publication_checklist.md)
 - [Repository truth gaps and explicit unknowns](../07_reference/97_repository_truth_gaps_and_explicit_unknowns.md)
-
-## Related reference
-- [Generation ledger and audit trail](../00_program/99_generation_ledger_and_audit_trail.md)
 
 ## If debugging this, inspect…
 - [Module reference index](02_module_reference_index.md)

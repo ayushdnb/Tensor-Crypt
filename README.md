@@ -56,11 +56,11 @@ The runtime keeps dense tensors for speed, but identity is defined by monotonic 
 ├── viewer/                    # Legacy compatibility imports
 ├── scripts/
 │   ├── benchmark_runtime.py   # Headless benchmark harness
-│   ├── run_soak_audit.py      # Headless soak audit
-│   └── dump_py_to_text.py     # Source dump helper
+│   ├── run_resume_chain_audit.py
+│   └── run_soak_audit.py      # Headless soak audit
 ├── docs/
 │   ├── architecture/          # Structure and compatibility notes
-│   ├── reports/               # Audit, validation, and patch reports
+│   ├── heavy_tech_documents/  # Extended technical reference
 │   └── technical_documents/   # Deep technical reference material
 └── tests/                     # Pytest suite
 ```
@@ -71,7 +71,7 @@ The runtime keeps dense tensors for speed, but identity is defined by monotonic 
 
 The repository ships with standard packaging metadata. An editable install keeps imports, scripts, and tests aligned with the checked-out tree.
 
-The viewer backend is intentionally pinned to the `pygame-ce` 2.5.x line. The code imports it as `pygame`, because `pygame-ce` provides the `pygame` module namespace. The checked-in manifests currently require `pygame-ce>=2.5.6,<2.6`, which matches the version line validated in this repository audit while still allowing patch-level updates within 2.5.x.
+The viewer backend is intentionally pinned to the `pygame-ce` 2.5.x line. The code imports it as `pygame`, because `pygame-ce` provides the `pygame` module namespace. The checked-in manifests currently require `pygame-ce>=2.5.6,<2.6`, which matches the version line enforced by the dependency tests while still allowing patch-level updates within 2.5.x.
 
 ```bash
 python -m venv .venv
@@ -135,7 +135,7 @@ The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 
 The side-panel inspector includes a compact Actions block for the same manual save/export operations. Manual save remains available while paused. Brain export is enabled only when a live agent is selected.
 
-When a live agent is selected, the inspector always surfaces the canonical UID, family, and trainable parameter count. It also keeps compact forensic fields such as slot, age/birth tick, lineage depth, parent-role UIDs, health/position, trait summary, PPO counters, and catastrophe exposure when the corresponding enrichment surfaces are enabled.
+When a live agent is selected, the inspector always surfaces the canonical UID, family, and trainable parameter count. It also keeps compact diagnostic fields such as slot, age/birth tick, lineage depth, parent-role UIDs, health/position, trait summary, PPO counters, and catastrophe exposure when the corresponding enrichment surfaces are enabled.
 
 ## Configuration
 
@@ -150,7 +150,7 @@ The file is organized by concern:
 - `BRAIN`: action/value dimensions, bloodline families, topology, and observation-compatibility policy
 - `PPO`: reward form, reward gating, rollout/update cadence, and UID ownership enforcement
 - `VIEW`: window size, supported startup overlays, and catastrophe UI
-- `LOG`, `TELEMETRY`, `CHECKPOINT`, `VALIDATION`: logging cadence, export cadence, checkpoint policy, and audit switches
+- `LOG`, `TELEMETRY`, `CHECKPOINT`, `VALIDATION`: logging cadence, export cadence, checkpoint policy, and validation switches
 - `IDENTITY`, `SCHEMA`, `MIGRATION`, `CATASTROPHE`: UID invariant strictness, schema versions, legacy visibility flags, and catastrophe scheduling
 - `SIM.EXPERIMENTAL_FAMILY_VMAP_*`: opt-in same-family inference batching for benchmarking on headless workloads without changing the default per-brain ownership-preserving loop
 

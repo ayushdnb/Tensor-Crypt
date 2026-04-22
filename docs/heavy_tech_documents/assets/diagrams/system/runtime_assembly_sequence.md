@@ -4,7 +4,7 @@
 
 ## What this asset shows
 - startup ordering from launch to viewer
-- stable construction sequence visible in the dump
+- stable construction sequence enforced by runtime assembly
 
 ## What this asset intentionally omits
 - per-tick simulation behavior

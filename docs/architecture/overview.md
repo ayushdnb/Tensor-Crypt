@@ -24,7 +24,7 @@ Tensor_Crypt/
   scripts/
   docs/
     architecture/
-    reports/
+    heavy_tech_documents/
     technical_documents/
   tests/
   config.py

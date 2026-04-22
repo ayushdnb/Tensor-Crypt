@@ -53,7 +53,7 @@ If code changes a compatibility-sensitive surface, update the relevant docs **in
 - [Cross-link integrity and publication checklist](../07_reference/98_crosslink_integrity_and_publication_checklist.md)
 
 ## If debugging this, inspect…
-- [Generation ledger and audit trail](../00_program/99_generation_ledger_and_audit_trail.md)
+- [Module reference index](../07_reference/02_module_reference_index.md)
 
 ## Terms introduced here
 - `high-risk change`

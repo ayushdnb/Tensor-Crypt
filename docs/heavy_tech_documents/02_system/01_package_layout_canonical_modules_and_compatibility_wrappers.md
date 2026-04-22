@@ -21,7 +21,7 @@ Maintainers, architecture readers, and anyone tracing imports from code into the
 
 ## 1. Canonical layout overview
 
-The code dump exposes a stable responsibility pattern:
+The repository follows a stable responsibility pattern:
 
 | Area | Canonical package region | Primary responsibility |
 | --- | --- | --- |
@@ -34,11 +34,11 @@ The code dump exposes a stable responsibility pattern:
 | Checkpointing | `tensor_crypt.checkpointing.*` | atomic publish, manifest, latest pointer, capture/restore |
 | Telemetry | `tensor_crypt.telemetry.*` | run paths, loggers, lineage export |
 | Viewer | `tensor_crypt.viewer.*` | UI loop, rendering, controls, panels |
-| Validation | `tensor_crypt.validation.*` | determinism, resume, catastrophe, save-load-save probes |
+| Validation | `tensor_crypt.audit.*` | determinism, resume, catastrophe, save-load-save probes |
 
 ## 2. Wrapper and bridge surfaces
 
-The dump also shows several non-canonical surfaces:
+The repository also exposes several non-canonical surfaces:
 
 | Surface | Status | What it does |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ The dump also shows several non-canonical surfaces:
 - `tensor_crypt.learning.ppo` owns UID-keyed rollout buffers, training counters, optimizers, and PPO update math.
 - `tensor_crypt.checkpointing.runtime_checkpoint` owns capture, validation, restore, and load/save entry points.
 - `tensor_crypt.checkpointing.atomic_checkpoint` owns manifest and latest-pointer publication.
-- `tensor_crypt.validation.final_validation` owns determinism and resume probes.
+- `tensor_crypt.audit.final_validation` owns determinism and resume probes.
 
 ## 4. Why the separation matters
 

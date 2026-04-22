@@ -20,9 +20,9 @@ Technical readers, maintainers, and auditors studying the learning path, data ow
 - [Reinforcement learning background](../01_foundations/06_reinforcement_learning_mdp_policy_value_and_advantage.md)
 - [PPO buffers and update cadence](01_ppo_buffers_bootstrap_and_update_cadence.md)
 
-## 1. Reward surface visible in the dump
+## 1. Reward surface defined by the current implementation
 
-The engine exposes a configurable PPO reward computation path. The visible supported reward form is `sq_health_ratio`, which squares the clamped HP ratio.
+The engine exposes a configurable PPO reward computation path. The current supported reward form is `sq_health_ratio`, which squares the clamped HP ratio.
 
 ## 2. Reward gating
 
@@ -43,7 +43,7 @@ Reward is what the environment emits at the current step. Value is the critic’
 
 ## 5. Health-clamp consequence
 
-The tests in the dump explicitly guard against negative-health squaring mistakes. That means the reward surface is not a casual algebraic helper; it is treated as correctness-sensitive.
+The checked-in tests explicitly guard against negative-health squaring mistakes. That means the reward surface is not a casual algebraic helper; it is treated as correctness-sensitive.
 
 
 ## Read next
