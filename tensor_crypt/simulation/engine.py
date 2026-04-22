@@ -114,6 +114,8 @@ class Engine:
         ppo,
         evolution,
         logger,
+        *,
+        bootstrap_initial_population: bool = True,
     ):
         self.grid = grid
         self.registry = registry
@@ -159,7 +161,7 @@ class Engine:
             "family_vmap_buckets": 0,
         }
 
-        if getattr(self.logger, "bootstrap_initial_population", None) is not None:
+        if bootstrap_initial_population and getattr(self.logger, "bootstrap_initial_population", None) is not None:
             self.logger.bootstrap_initial_population(self.registry)
 
     @staticmethod
@@ -546,4 +548,3 @@ class Engine:
         self._maybe_save_snapshots()
         self._maybe_save_runtime_checkpoint()
         self._maybe_print_tick_progress()
-

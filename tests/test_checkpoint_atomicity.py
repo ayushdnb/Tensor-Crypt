@@ -25,6 +25,11 @@ def test_atomic_checkpoint_emits_manifest_and_latest_pointer(runtime_builder, tm
     assert checkpoint_path.with_suffix(".pt.manifest.json").exists()
     assert latest_pointer_path.exists()
     assert int(manifest["tick"]) == int(runtime.engine.tick)
+    assert manifest["resume_taxonomy_version"] == 1
+    assert manifest["exact_resume_capable"] is True
+    assert {"substrate_shape_contract", "observation_contract", "family_contract_set"}.issubset(
+        manifest["contract_hashes"].keys()
+    )
 
     loaded = load_runtime_checkpoint(checkpoint_path)
     assert int(loaded["engine_state"]["tick"]) == int(bundle["engine_state"]["tick"])

@@ -27,6 +27,7 @@ from .atomic_checkpoint import (
     resolve_latest_checkpoint_bundle,
     validate_checkpoint_file_set,
 )
+from .resume_policy import build_checkpoint_contract_snapshot
 
 
 def _schema_versions_dict(cfg_obj) -> dict:
@@ -140,7 +141,7 @@ def capture_runtime_checkpoint(runtime) -> dict:
     if cfg.CATASTROPHE.PERSIST_STATE_IN_CHECKPOINTS:
         catastrophe_state = runtime.engine.catastrophes.serialize()
 
-    return {
+    bundle = {
         "checkpoint_schema_version": cfg.SCHEMA.CHECKPOINT_SCHEMA_VERSION,
         "schema_versions": _schema_versions_dict(cfg),
         "config_snapshot": asdict(cfg),
@@ -181,8 +182,13 @@ def capture_runtime_checkpoint(runtime) -> dict:
             "device": str(cfg.SIM.DEVICE),
             "amp_enabled": bool(cfg.LOG.AMP),
             "config_fingerprint": _config_fingerprint({"config_snapshot": asdict(cfg)}),
+            "observation_mode": str(cfg.PERCEPT.OBS_MODE),
+            "experimental_branch_preset": bool(cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET),
+            "experimental_branch_family": str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY),
         },
     }
+    bundle["metadata"]["resume_contract"] = build_checkpoint_contract_snapshot(bundle, cfg)
+    return bundle
 
 
 def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None = None) -> None:
@@ -232,6 +238,19 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
             raise ValueError("Checkpoint slot_parent_uid shape does not match slot_uid shape")
         if fitness.shape != slot_uid_tensor.shape:
             raise ValueError("Checkpoint fitness shape does not match slot_uid shape")
+        if int(data.shape[1]) != int(cfg_obj.AGENTS.N):
+            raise ValueError("Checkpoint registry_state.data width does not match current AGENTS.N")
+
+        grid_payload = bundle.get("grid_state", {}).get("grid")
+        if grid_payload is None:
+            raise ValueError("Checkpoint grid_state is missing 'grid'")
+        if grid_payload.dim() != 3:
+            raise ValueError("Checkpoint grid_state.grid must be rank 3")
+        expected_grid_shape = (4, int(cfg_obj.GRID.H), int(cfg_obj.GRID.W))
+        if tuple(int(dim) for dim in grid_payload.shape) != expected_grid_shape:
+            raise ValueError(
+                f"Checkpoint grid_state.grid shape {tuple(grid_payload.shape)} does not match current grid shape {expected_grid_shape}"
+            )
 
     uid_lifecycle = deserialize_agent_lifecycle(registry_state["uid_lifecycle"])
     uid_family = {int(uid): str(family_id) for uid, family_id in registry_state["uid_family"].items()}
@@ -296,6 +315,31 @@ def validate_runtime_checkpoint(bundle: dict, cfg_obj, *, manifest: dict | None 
         for key in ("brain_parent_uid", "trait_parent_uid", "anchor_parent_uid"):
             if key not in roles:
                 raise ValueError(f"Checkpoint parent roles missing {key} for UID {uid}")
+
+    saved_percept = bundle.get("config_snapshot", {}).get("PERCEPT", {})
+    saved_brain = bundle.get("config_snapshot", {}).get("BRAIN", {})
+    saved_metadata = bundle.get("metadata", {})
+    saved_obs_mode = str(saved_metadata.get("observation_mode", saved_percept.get("OBS_MODE", "canonical_v2")))
+    current_obs_mode = str(getattr(cfg_obj.PERCEPT, "OBS_MODE", "canonical_v2"))
+    if saved_obs_mode != current_obs_mode:
+        raise ValueError(
+            f"Checkpoint observation mode mismatch: bundle uses {saved_obs_mode!r}, current config uses {current_obs_mode!r}"
+        )
+
+    saved_experimental_preset = bool(saved_metadata.get("experimental_branch_preset", saved_brain.get("EXPERIMENTAL_BRANCH_PRESET", False)))
+    current_experimental_preset = bool(getattr(cfg_obj.BRAIN, "EXPERIMENTAL_BRANCH_PRESET", False))
+    if saved_experimental_preset != current_experimental_preset:
+        raise ValueError(
+            "Checkpoint experimental-branch preset mismatch between bundle and current config"
+        )
+
+    if saved_experimental_preset:
+        saved_experimental_family = str(saved_metadata.get("experimental_branch_family", saved_brain.get("EXPERIMENTAL_BRANCH_FAMILY", cfg_obj.BRAIN.DEFAULT_FAMILY)))
+        current_experimental_family = str(getattr(cfg_obj.BRAIN, "EXPERIMENTAL_BRANCH_FAMILY", cfg_obj.BRAIN.DEFAULT_FAMILY))
+        if saved_experimental_family != current_experimental_family:
+            raise ValueError(
+                f"Checkpoint experimental branch family mismatch: bundle uses {saved_experimental_family!r}, current config uses {current_experimental_family!r}"
+            )
 
     expected_topology_by_family: dict[str, list[list | tuple]] = {}
     for uid, metadata in bundle["brain_metadata_by_uid"].items():
@@ -380,6 +424,7 @@ def restore_runtime_checkpoint(runtime, bundle: dict) -> None:
     if hasattr(physics, "refresh_static_wall_cache"):
         physics.refresh_static_wall_cache()
     runtime.engine.tick = int(bundle["engine_state"]["tick"])
+    registry.tick_counter = int(runtime.engine.tick)
     runtime.engine.respawn_controller.last_respawn_tick = int(bundle["engine_state"]["respawn_last_tick"])
     runtime.engine.respawn_controller.restore_runtime_state(
         bundle["engine_state"].get("respawn_overlay_runtime_state")

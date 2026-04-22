@@ -34,15 +34,33 @@ def schema_versions_dict() -> dict:
     }
 
 
-def build_run_metadata() -> dict:
+def build_run_metadata(session_metadata: dict | None = None) -> dict:
     manifests_published = bool(
         cfg.CHECKPOINT.ATOMIC_WRITE_ENABLED
         and cfg.CHECKPOINT.MANIFEST_ENABLED
         and cfg.CHECKPOINT.SAVE_CHECKPOINT_MANIFEST
     )
+    launch_mode = str(getattr(cfg.CHECKPOINT, "LAUNCH_MODE", "fresh_run"))
+    session = {
+        "launch_mode_requested": launch_mode,
+        "launch_mode_resolved": launch_mode,
+        "session_kind": "fresh" if launch_mode == "fresh_run" else launch_mode,
+        "source_checkpoint_path": None,
+        "source_manifest_path": None,
+        "source_checkpoint_tick": None,
+        "source_checkpoint_schema_version": None,
+        "legacy_contract_inference_used": False,
+        "compatibility_report_path": None,
+        "fork_reason": "",
+        "ancestor_session_kind": None,
+        "compatibility_failure_class": None,
+    }
+    if session_metadata:
+        session.update(session_metadata)
     return {
         "schema_versions": schema_versions_dict(),
         "config_snapshot": "config.json",
+        "session": session,
         "identity": {
             **FIXED_IDENTITY_RUNTIME,
             "mirror_legacy_float_columns": cfg.IDENTITY.MIRROR_UIDS_TO_LEGACY_FLOAT_COLUMNS,
@@ -97,7 +115,7 @@ def build_run_metadata() -> dict:
     }
 
 
-def create_run_directory() -> str:
+def create_run_directory(session_metadata: dict | None = None) -> str:
     base_run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}"
     root_dir = Path(cfg.LOG.DIR)
 
@@ -120,6 +138,6 @@ def create_run_directory() -> str:
 
     run_metadata_path = run_dir / "run_metadata.json"
     with run_metadata_path.open("w", encoding="utf-8") as handle:
-        json.dump(build_run_metadata(), handle, indent=2)
+        json.dump(build_run_metadata(session_metadata=session_metadata), handle, indent=2)
 
     return str(run_dir)

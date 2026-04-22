@@ -4,6 +4,7 @@ from tensor_crypt.audit.final_validation import (
     run_final_validation_suite,
     run_resume_chain_probe,
     run_resume_consistency_probe,
+    run_stage1_resume_policy_probe,
     save_load_save_surface_signature,
 )
 from tensor_crypt.config_bridge import cfg
@@ -65,6 +66,14 @@ def test_save_load_save_surface_signature_passes(runtime_builder, tmp_path):
     assert report["registry_data_equal"] is True
     assert report["fitness_equal"] is True
     assert report["grid_equal"] is True
+
+
+def test_stage1_resume_policy_probe_passes(runtime_builder, tmp_path):
+    def factory():
+        return runtime_builder(seed=340, agents=6, walls=0, hzones=0)
+
+    report = run_stage1_resume_policy_probe(factory, tmp_path / "policy_probe.pt")
+    assert report["match"] is True
 
 
 def test_full_validation_suite_passes(runtime_builder, tmp_path):

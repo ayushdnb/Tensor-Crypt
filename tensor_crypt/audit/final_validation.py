@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import hashlib
 from pathlib import Path
 from typing import Callable
 
 import torch
 
+from ..checkpointing.resume_policy import resolve_resume_request
 from ..checkpointing.runtime_checkpoint import (
     capture_runtime_checkpoint,
     load_runtime_checkpoint,
@@ -16,6 +19,11 @@ from ..checkpointing.runtime_checkpoint import (
     save_runtime_checkpoint,
 )
 from ..config_bridge import cfg
+
+
+def _restore_cfg(snapshot) -> None:
+    for field in dataclasses.fields(snapshot):
+        setattr(cfg, field.name, copy.deepcopy(getattr(snapshot, field.name)))
 
 
 def _tensor_digest(tensor: torch.Tensor) -> str:
@@ -229,6 +237,90 @@ def run_catastrophe_repro_probe(runtime_factory: Callable[[], object], *, ticks:
     }
 
 
+def run_stage1_resume_policy_probe(runtime_factory: Callable[[], object], checkpoint_path: str | Path) -> dict:
+    snapshot = copy.deepcopy(cfg)
+    checkpoint_path = Path(checkpoint_path)
+    try:
+        runtime = runtime_factory()
+        bundle = capture_runtime_checkpoint(runtime)
+        save_runtime_checkpoint(checkpoint_path, bundle)
+
+        exact_report = resolve_resume_request(
+            requested_mode="resume_exact",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+
+        original_log_cadence = int(cfg.LOG.LOG_TICK_EVERY)
+        cfg.LOG.LOG_TICK_EVERY = original_log_cadence + 1
+        exact_with_drift_report = resolve_resume_request(
+            requested_mode="resume_exact",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+        drift_report = resolve_resume_request(
+            requested_mode="resume_with_drift",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+
+        cfg.LOG.LOG_TICK_EVERY = original_log_cadence
+        cfg.PPO.LR = float(cfg.PPO.LR) * 1.5
+        drift_with_fork_delta_report = resolve_resume_request(
+            requested_mode="resume_with_drift",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+        fork_report = resolve_resume_request(
+            requested_mode="fork_from_checkpoint",
+            bundle=bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+
+        _restore_cfg(snapshot)
+        legacy_bundle = copy.deepcopy(bundle)
+        legacy_bundle.get("metadata", {}).pop("resume_contract", None)
+        legacy_bundle["rng_state"] = None
+        legacy_report = resolve_resume_request(
+            requested_mode="resume_exact",
+            bundle=legacy_bundle,
+            cfg_obj=cfg,
+            source_checkpoint_path=checkpoint_path,
+        )
+
+        checks = {
+            "exact_accepts_clean_checkpoint": exact_report["allowed"] and exact_report["resolved_mode"] == "resume_exact",
+            "exact_rejects_drift_surface": not exact_with_drift_report["allowed"]
+            and exact_with_drift_report["failure_class"] == "drift_acknowledgment_required",
+            "drift_accepts_drift_surface": drift_report["allowed"] and drift_report["resolved_mode"] == "resume_with_drift",
+            "drift_rejects_fork_only_surface": not drift_with_fork_delta_report["allowed"]
+            and drift_with_fork_delta_report["failure_class"] == "fork_semantics_required",
+            "fork_accepts_fork_only_surface": fork_report["allowed"] and fork_report["resolved_mode"] == "fork_from_checkpoint",
+            "legacy_inference_blocks_exact_when_rng_missing": not legacy_report["allowed"]
+            and legacy_report["legacy_contract_inference_used"]
+            and "rng_state_missing" in legacy_report["exact_resume_completeness_deficits"],
+        }
+        return {
+            "match": all(checks.values()),
+            "checks": checks,
+            "reports": {
+                "exact": exact_report,
+                "exact_with_drift": exact_with_drift_report,
+                "drift": drift_report,
+                "drift_with_fork_delta": drift_with_fork_delta_report,
+                "fork": fork_report,
+                "legacy": legacy_report,
+            },
+        }
+    finally:
+        _restore_cfg(snapshot)
+
+
 def _skipped_check(reason: str) -> dict:
     return {"enabled": False, "skipped": True, "reason": reason}
 
@@ -246,6 +338,7 @@ def run_final_validation_suite(
             "resume": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "catastrophe": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "save_load_save": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
+            "resume_policy": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "all_passed": True,
             "skipped": True,
         }
@@ -255,6 +348,7 @@ def run_final_validation_suite(
         "resume": _skipped_check("ENABLE_RESUME_CONSISTENCY_TESTS is disabled"),
         "catastrophe": _skipped_check("ENABLE_CATASTROPHE_REPRO_TESTS is disabled"),
         "save_load_save": _skipped_check("ENABLE_SAVE_LOAD_SAVE_TESTS is disabled"),
+        "resume_policy": _skipped_check("ENABLE_RESUME_POLICY_TESTS is disabled"),
     }
 
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -273,6 +367,8 @@ def run_final_validation_suite(
         report["catastrophe"] = run_catastrophe_repro_probe(runtime_factory, ticks=min(ticks, 8))
     if cfg.VALIDATION.ENABLE_SAVE_LOAD_SAVE_TESTS:
         report["save_load_save"] = save_load_save_surface_signature(runtime_factory, checkpoint_path)
+    if cfg.VALIDATION.ENABLE_RESUME_POLICY_TESTS:
+        report["resume_policy"] = run_stage1_resume_policy_probe(runtime_factory, checkpoint_path)
 
     enabled_results = []
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -292,6 +388,8 @@ def run_final_validation_suite(
                 bool(report["save_load_save"]["grid_equal"]),
             ]
         )
+    if cfg.VALIDATION.ENABLE_RESUME_POLICY_TESTS:
+        enabled_results.append(bool(report["resume_policy"]["match"]))
     report["all_passed"] = all(enabled_results) if enabled_results else True
     return report
 

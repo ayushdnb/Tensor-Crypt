@@ -158,38 +158,61 @@ class MapgenConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Number of random wall segments requested during map generation.
-    # Higher values generally create a more obstructed arena.
-    RANDOM_WALLS: int = 9
+    # Overnight profile choice: reduce this from 9 to 6 so the arena is less maze-like.
+    # The default was rejected because the current one-cell-thick wandering segments can consume a surprising
+    # amount of traversable space on a 100x100 map and increase accidental wall attrition before policies have
+    # learned anything useful.
+    # More aggressive reductions were rejected because an almost empty map tends to collapse into low-contact
+    # wandering rather than visible interaction.
+    RANDOM_WALLS: int = 6
     #
     # CURRENT STATUS: active runtime knob.
     # Minimum wall segment length.
-    # Raise this for longer, more imposing wall runs.
-    WALL_SEG_MIN: int = 34
+    # Lowered from 34 to 20 to keep obstacles present but less dominating.
+    # Expected effect: fewer long dead-end corridors, more recoverable movement paths, and fewer incidental wall
+    # hits from immature policies.
+    # Tradeoff: slightly less positional pressure and slightly less forced pathing variety.
+    WALL_SEG_MIN: int = 20
     #
     # CURRENT STATUS: active runtime knob.
     # Maximum wall segment length.
-    # Raise carefully: very large values can over-constrain the map, especially on smaller grids.
-    WALL_SEG_MAX: int = 83
+    # Lowered from 83 to 52 for the same reason: the default upper tail can over-constrain the map in a way that
+    # amplifies collision damage and local starvation.
+    # A more conservative value near the original default was rejected because it preserved too much of the
+    # obstructive regime; a much smaller value was rejected because it would make the map overly open.
+    WALL_SEG_MAX: int = 52
     #
     # CURRENT STATUS: active runtime knob.
     # Margin used when keeping walls away from protected regions / edges during generation.
-    # Larger values reserve more breathing room around those regions.
-    WALL_AVOID_MARGIN: int = 4
+    # Nudged from 4 to 5 so the reduced wall set also leaves slightly cleaner breathing room near boundaries.
+    # This is a mild operator-comfort and movement-stability adjustment, not a semantic rewrite.
+    WALL_AVOID_MARGIN: int = 5
     #
     # CURRENT STATUS: active runtime knob.
-    # Number of heal/harm zones requested during procedural generation.
-    # Higher counts create a busier field landscape.
-    HEAL_ZONE_COUNT: int = 5
+    # Number of heal zones requested during procedural generation.
+    # Raised from 20 to 28 so the baseline world contains more survivable refugia and fewer sterile deserts.
+    # Expected effect: better overnight persistence, more local ecological niches, and less dependence on rare
+    # lucky pathing for first-generation survival.
+    # More aggressive zone counts were rejected because they risk turning the map into a near-everywhere safe
+    # field with weak selection pressure.
+    HEAL_ZONE_COUNT: int = 28
     #
     # CURRENT STATUS: active runtime knob.
     # Zone size as a fraction-like ratio of map size.
-    # Increase for larger individual zones; decrease for smaller patches.
-    HEAL_ZONE_SIZE_RATIO: float = 15 / 256
+    # Raised from 10/256 (~0.039) to 0.05 so each refuge is slightly easier to rediscover and exploit.
+    # On a 100x100 map this moves the nominal generated patch size from roughly 4x4 to roughly 5x5 cells.
+    # Tradeoff: larger zones reduce starvation pressure; the compensating choice here is to keep the heal rate
+    # below the original 0.5 rather than making zones both larger and equally strong.
+    HEAL_ZONE_SIZE_RATIO: float = 0.05
     #
     # CURRENT STATUS: active runtime knob.
     # Base positive heal-zone rate used by generated zones.
-    # Higher values make positive zones more influential.
-    HEAL_RATE: float = 0.5
+    # Lowered slightly from 0.5 to 0.42 while zone coverage is increased.
+    # This specific combination was chosen to widen refuge availability without making a small number of tiles so
+    # strong that they trivialize survival once found.
+    # A more conservative 0.5 was rejected because larger and more numerous zones at full strength risked overly
+    # safe camping; a much lower rate was rejected because it would not offset overnight metabolism/physics loss.
+    HEAL_RATE: float = 0.42
 
 
 @dataclass
@@ -202,8 +225,15 @@ class AgentsConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Dense slot capacity and initial seed-population target.
-    # This changes memory footprint, initial alive count, and the upper bound of registry slots.
-    N: int = 100
+    # Raised from 100 to 160 because this repository uses `AGENTS.N` as both the registry slot count and the
+    # initial seed-population target.
+    # The default was rejected because it underuses the available runtime headroom of the supplied machine and,
+    # more importantly, keeps the live interaction surface thin on a 100x100 map.
+    # Expected effect: more concurrent contact opportunities, more lineage turnover, and more visible overnight
+    # dynamics without moving into reckless crowding.
+    # Tradeoff: more per-tick compute, larger optimizer/checkpoint state, and reduced compatibility with old runs
+    # that were created under a different slot width.
+    N: int = 160
     #
     # CURRENT STATUS: guarded compatibility surface.
     # Non-supported non-default values are rejected during runtime validation rather than being silently accepted.
@@ -229,17 +259,25 @@ class RespawnCrowdingOverlayConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Master enable for The Ashen Press.
-    # When enabled, anchor-local crowding can block or divert births.
-    ENABLED: bool = False
+    # Enabled for the overnight profile because local anti-clumping is useful once slot capacity is increased and
+    # floor recovery becomes more capable.
+    # The disabled default was rejected because it allows repeated anchor-local births to produce avoidable dense
+    # piles that magnify collision losses and placement failures.
+    # Tradeoff: some births that would have stayed local are diverted to global fallback instead.
+    ENABLED: bool = True
     #
     # CURRENT STATUS: active runtime knob.
     # Chebyshev radius used to count live neighbors around the anchor parent.
+    # Kept at 2 because the doctrine should react to genuinely local crowding rather than broad regional density.
     LOCAL_RADIUS: int = 2
     #
     # CURRENT STATUS: active runtime knob.
     # Births are considered crowded once this many live non-anchor neighbors
     # are present in the anchor neighborhood.
-    MAX_NEIGHBORS: int = 5
+    # Raised from 5 to 6 so the doctrine smooths only the densest local clusters rather than overreacting to mild
+    # healthy neighborhoods.
+    # A stricter threshold was rejected because it would suppress too much local lineage growth.
+    MAX_NEIGHBORS: int = 6
     #
     # CURRENT STATUS: guarded compatibility surface.
     # Supported values are "block_birth" and "global_only".
@@ -262,11 +300,20 @@ class RespawnCooldownOverlayConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Master enable for The Widow Interval.
-    ENABLED: bool = False
+    # Enabled because the current live brain-parent surface does not carry a rich fitness signal for alive agents,
+    # so a light refractory doctrine is one of the few config-only tools available to prevent the same surviving
+    # UID from dominating consecutive birth cycles.
+    # The disabled default was rejected because it amplifies repetitive parent reuse in a way that reduces local
+    # diversity.
+    ENABLED: bool = True
     #
     # CURRENT STATUS: active runtime knob.
     # Tick duration for parent-UID refractory windows.
-    DURATION_TICKS: int = 32
+    # Raised from 32 to 48 to span a meaningful fraction of the new 64-tick normal respawn cadence without making
+    # the parent pool brittle.
+    # More aggressive durations were rejected because they can strand the controller when the alive set is small;
+    # shorter windows were rejected because they do not meaningfully break repetitive parent reuse.
+    DURATION_TICKS: int = 48
     #
     # CURRENT STATUS: active runtime knob.
     # Whether the doctrine applies to the brain parent role.
@@ -301,11 +348,17 @@ class RespawnLocalParentOverlayConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Master enable for The Bloodhold Radius.
-    ENABLED: bool = False
+    # Enabled because the repository launch path is single-family and the alive-slot fitness surface is too weak to
+    # trust as a global brain-parent discriminator.
+    # This local doctrine is therefore a practical config-only way to preserve spatially grounded lineage dynamics.
+    ENABLED: bool = True
     #
     # CURRENT STATUS: active runtime knob.
     # Chebyshev radius around the dead slot used to build the local candidate pool.
-    SELECTION_RADIUS: int = 8
+    # Raised from 8 to 10 so sparse regions still find a usable local pool while remaining meaningfully local.
+    # A smaller radius was rejected because it risks empty pools on a 100x100 map; a much larger radius was
+    # rejected because it collapses back toward near-global parenting.
+    SELECTION_RADIUS: int = 10
     #
     # CURRENT STATUS: guarded compatibility surface.
     # Supported values are "global" and "strict".
@@ -347,23 +400,37 @@ class RespawnConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Minimum tick gap between normal respawn cycles.
-    # Lower values make recovery more frequent.
-    RESPAWN_PERIOD: int = 100
+    # Lowered from 100 to 64 so normal recovery starts sooner after attrition, while still leaving enough time for
+    # deaths and selection pressure to matter between scheduled recovery sweeps.
+    # The default was rejected because dead slots can remain empty for too long relative to the observed health and
+    # metabolism scales, which makes moderate downturns snowball into thin populations.
+    # More aggressive values were rejected because they would make the controller feel like a constant birth pump.
+    RESPAWN_PERIOD: int = 64
     #
     # CURRENT STATUS: active runtime knob.
     # Upper bound on births emitted in one respawn cycle.
-    # Raise for more aggressive population recovery.
-    MAX_SPAWNS_PER_CYCLE: int = 3
+    # Raised from 3 to 8 because this same cap also constrains the practical effect of extinction recovery.
+    # The default was rejected as too weak for overnight floor repair on a 160-slot run.
+    # Expected effect: materially better recovery after localized die-offs without allowing unlimited burst births.
+    # Tradeoff: more spawn work on recovery ticks and a higher chance of rapid repopulation if the environment turns
+    # temporarily very safe.
+    MAX_SPAWNS_PER_CYCLE: int = 8
     #
     # CURRENT STATUS: active runtime knob.
     # Soft lower population threshold that triggers recovery behavior.
-    # If live population falls below this, the controller enters floor-recovery logic.
-    POPULATION_FLOOR: int = 20
+    # Raised from 20 to 64 so the controller intervenes before the population becomes functionally non-interactive.
+    # The old floor was rejected because it waits until the run is already close to ecological failure on a 160-slot
+    # substrate.
+    # A much higher floor was rejected because it would keep the system in near-permanent recovery mode.
+    POPULATION_FLOOR: int = 64
     #
     # CURRENT STATUS: active runtime knob.
     # Upper population ceiling for births.
-    # No births are emitted once live population is at or above this value.
-    POPULATION_CEILING: int = 350
+    # Set equal to `AGENTS.N` rather than left at the misleading old value of 350.
+    # Repository fact: births can only occupy dead slots within the fixed registry width, so a ceiling above the slot
+    # count does not create real headroom; it only obscures the effective limit.
+    # Expected effect: the public control surface now matches the actual runtime cap seen by the controller.
+    POPULATION_CEILING: int = 160
 
     # Prompt 5 reproduction control surface.
     #
@@ -430,14 +497,21 @@ class RespawnConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # What to do when live population drops below the minimum needed for binary reproduction.
-    # Supported policies are `"fail_run"`, `"seed_bank_bootstrap"`, and `"admin_spawn_defaults"`.
-    # This is an important operator safety choice.
-    EXTINCTION_POLICY: str = "fail_run"  # fail_run | seed_bank_bootstrap | admin_spawn_defaults
+    # Switched from `fail_run` to `seed_bank_bootstrap` because premature overnight extinction is a first-class
+    # failure mode for this profile.
+    # The default was rejected because it optimizes for operator disappointment: one bad hour can terminate the
+    # entire unattended run.
+    # Tradeoff: recovery after true collapse reintroduces default-latent seeds rather than preserving a pure
+    # no-rescue ecology.
+    EXTINCTION_POLICY: str = "seed_bank_bootstrap"  # fail_run | seed_bank_bootstrap | admin_spawn_defaults
     #
     # CURRENT STATUS: active runtime knob.
     # How many bootstrap agents to spawn under extinction-recovery policies.
-    # Ignored when `EXTINCTION_POLICY` is `fail_run`.
-    EXTINCTION_BOOTSTRAP_SPAWNS: int = 2
+    # Raised from 2 to 8 so extinction recovery is materially capable once triggered.
+    # This value was coordinated with `MAX_SPAWNS_PER_CYCLE`, which also caps practical bootstrap throughput.
+    # A smaller value was rejected because it produces a fragile near-zero restart; a larger value was rejected to
+    # avoid turning collapse recovery into an almost instantaneous full reset.
+    EXTINCTION_BOOTSTRAP_SPAWNS: int = 8
     #
     # CURRENT STATUS: active runtime knob.
     # Family assigned to bootstrap spawns created by extinction recovery.
@@ -452,13 +526,18 @@ class RespawnConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Maximum ring radius used for local offspring placement search.
-    # Larger values widen the local search envelope.
-    OFFSPRING_JITTER_RADIUS_MAX: int = 3
+    # Raised from 3 to 4 so births have a slightly wider anchor-local envelope before giving up.
+    # The default was rejected because local placement becomes brittle once crowding and cooldown doctrines are
+    # enabled together.
+    # A much larger radius was rejected because it would blur local lineage structure.
+    OFFSPRING_JITTER_RADIUS_MAX: int = 4
     #
     # CURRENT STATUS: active runtime knob.
     # Hard cap on local placement attempts before fallback / failure.
-    # Higher values search harder but increase spawn-time cost.
-    OFFSPRING_MAX_PLACEMENT_ATTEMPTS: int = 32
+    # Raised from 32 to 48 so the controller searches a little harder before declaring local placement failure.
+    # Expected effect: fewer lost births during recovery without resorting immediately to global fallback.
+    # Tradeoff: somewhat more work on spawn-heavy ticks.
+    OFFSPRING_MAX_PLACEMENT_ATTEMPTS: int = 48
     #
     # CURRENT STATUS: active runtime knob.
     # Whether to search globally if local anchor placement fails.
@@ -562,7 +641,12 @@ class TraitClamp:
     #
     # CURRENT STATUS: active runtime knob.
     # TRAITS.metab operator knob.
-    metab: List[float] = field(default_factory=lambda: [0.01, 0.4])
+    # Tightened from [0.01, 0.4] to [0.008, 0.28].
+    # The default upper bound was rejected because the affine metabolism formula plus high-vision/high-mass samples
+    # can become punishing enough to erase young lineages before learning has any real chance to matter.
+    # Expected effect: fewer biologically doomed high-metabolism draws while still preserving meaningful variation.
+    # Tradeoff: slightly softer environmental pressure and a somewhat narrower trait-space frontier.
+    metab: List[float] = field(default_factory=lambda: [0.008, 0.28])
 
 
 @dataclass
@@ -625,13 +709,18 @@ class TraitsConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Coefficient dictionary used by the active affine metabolism formula.
-    # Changing these values changes the metabolic burden associated with base existence, mass, and
-    # vision.
+    # Reduced modestly from {base: 0.0002, per_mass: 0.0001, per_vision: 0.00002} to a slightly gentler burden.
+    # Repository-grounded rationale: the default latent decode already yields modest HP budgets, so keeping both the
+    # clamp ceiling and the affine coefficients too high biases the world toward fast attrition rather than overnight
+    # persistence.
+    # Expected effect: a longer median pre-learning survival window, especially for non-zone pathing mistakes.
+    # Tradeoff: agents can coast longer without solving the environment, so the profile compensates with higher
+    # concurrency and active reproduction doctrines rather than making survival free.
     METAB_COEFFS: Dict[str, float] = field(
         default_factory=lambda: {
-            "base": 0.0002,
-            "per_mass": 0.0001,
-            "per_vision": 0.00002,
+            "base": 0.00015,
+            "per_mass": 0.00008,
+            "per_vision": 0.000015,
         }
     )
 
@@ -646,28 +735,38 @@ class PhysicsConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Penalty or damage scale associated with wall interaction.
-    # Increase to punish wall contact more harshly.
-    K_WALL_PENALTY: float = 0.60
+    # Lowered from 0.60 to 0.35 because the overnight goal is not to let first-generation random movement die almost
+    # immediately on map geometry.
+    # The default was rejected as too punishing once combined with procedural walls and metabolism.
+    # Tradeoff: walls still matter, but they become more of a navigational tax than a frequent execution mechanism.
+    K_WALL_PENALTY: float = 0.35
     #
     # CURRENT STATUS: active runtime knob.
     # Penalty scale associated with ram/collision events.
-    # Increase to make collision-heavy behavior more costly.
-    K_RAM_PENALTY: float = 0.1
+    # Lowered slightly from 0.1 to 0.08 so exploratory contact is not over-taxed while collisions remain meaningful.
+    # A much lower value was rejected because it would make body-contact almost free.
+    K_RAM_PENALTY: float = 0.08
     #
     # CURRENT STATUS: active runtime knob.
     # Penalty applied when the relevant idle-hit condition is triggered.
-    # Raise for stronger discouragement of that condition.
-    K_IDLE_HIT_PENALTY: float = 0.8
+    # Lowered from 0.8 to 0.45 because the default passive-hit punishment is very large relative to the decoded early
+    # HP scales.
+    # Expected effect: fewer abrupt deaths from immature spacing behavior.
+    # Tradeoff: somewhat softer deterrence against bad collision etiquette.
+    K_IDLE_HIT_PENALTY: float = 0.45
     #
     # CURRENT STATUS: active runtime knob.
     # Damage applied to the contest winner in asymmetric combat resolution.
-    # Higher values make even winning fights more expensive.
-    K_WINNER_DAMAGE: float = 0.2
+    # Lowered from 0.2 to 0.12 so successful contests remain costly but not self-nullifying.
+    # The more conservative default was rejected because it drains even advantaged agents too quickly in aggregate.
+    K_WINNER_DAMAGE: float = 0.12
     #
     # CURRENT STATUS: active runtime knob.
     # Damage applied to the contest loser.
-    # Higher values make losing engagements more punishing.
-    K_LOSER_DAMAGE: float = 0.6
+    # Lowered from 0.6 to 0.36 to preserve selection pressure while reducing the chance that routine contact wipes out
+    # thin local populations before reproduction can refill them.
+    # A much softer value was rejected because it would dull competitive turnover too far.
+    K_LOSER_DAMAGE: float = 0.36
     #
     # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
     # Audit basis: no direct `.PHYS.MOVE_FAIL_COST` runtime read was found in the code dump.
@@ -709,6 +808,17 @@ class PerceptionConfig:
     # Ray stepping / sampler mode surface.
     # No direct runtime read was found in the uploaded dump, so this currently appears unread.
     RAY_STEP_SAMPLER: str = "dda_first_hit"
+
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Observation-contract selector for additive perception branches.
+    # Supported values are `"canonical_v2"` and `"experimental_selfcentric_v1"`.
+    OBS_MODE: str = "canonical_v2"
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether the perception system should emit the additive experimental observation bundle.
+    # This may be enabled independently for debugging, but the experimental branch preset requires it.
+    RETURN_EXPERIMENTAL_OBSERVATIONS: bool = False
 
     #
     # CURRENT STATUS: active runtime knob.
@@ -763,7 +873,7 @@ class PerceptionConfig:
     # CURRENT STATUS: active runtime knob.
     # Normalization ceiling for zone-rate features.
     # Higher values make the normalized observation less sensitive to moderate field strengths.
-    ZONE_RATE_ABS_MAX: float = 5.0
+    ZONE_RATE_ABS_MAX: float = 1.0
     #
     # CURRENT STATUS: active runtime knob.
     # Age normalization denominator in ticks.
@@ -774,6 +884,19 @@ class PerceptionConfig:
     # Whether the perception system returns canonical observations by default.
     # Disabling this would push more pressure onto legacy compatibility paths.
     RETURN_CANONICAL_OBSERVATIONS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental per-ray feature count.
+    # This is the additive self-centric branch ray width; keep aligned with the experimental brain contract.
+    EXPERIMENTAL_RAY_FEATURES: int = 7
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental self-feature count.
+    EXPERIMENTAL_SELF_FEATURES: int = 11
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental context-feature count.
+    EXPERIMENTAL_CONTEXT_FEATURES: int = 1
 
 
 @dataclass
@@ -820,6 +943,11 @@ class BloodlineFamilySpec:
     # CURRENT STATUS: active runtime knob.
     # BRAIN.dropout operator knob.
     dropout: float = 0.0
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Observation contract consumed by this family topology.
+    # Supported values are `"canonical_v2"` and `"experimental_selfcentric_v1"`.
+    observation_contract: str = "canonical_v2"
 
 
 @dataclass
@@ -859,6 +987,38 @@ class BrainConfig:
     # Fallback family used when no explicit family is supplied.
     # It must be present in `FAMILY_ORDER`.
     DEFAULT_FAMILY: str = "House Nocthar"
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Experimental single-family preset gate.
+    # When enabled, root seeds are forced onto `EXPERIMENTAL_BRANCH_FAMILY`, that family switches to
+    # the experimental self-centric observation contract, and viewer color is remapped to cyan.
+    EXPERIMENTAL_BRANCH_PRESET: bool = False
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Existing family slot that is repurposed by the experimental branch preset.
+    # It must already exist in `FAMILY_ORDER` so family-aware telemetry and viewer surfaces remain stable.
+    EXPERIMENTAL_BRANCH_FAMILY: str = "House Nocthar"
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Cyan family color used when the experimental branch preset is active.
+    EXPERIMENTAL_BRANCH_COLOR: List[int] = field(default_factory=lambda: [64, 224, 255])
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Lightweight split-input topology used by the experimental branch preset.
+    EXPERIMENTAL_BRANCH_SPEC: BloodlineFamilySpec = field(
+        default_factory=lambda: BloodlineFamilySpec(
+            hidden_widths=[96, 64, 64],
+            activation="silu",
+            normalization="pre",
+            residual=True,
+            gated=False,
+            split_inputs=True,
+            split_ray_width=64,
+            split_scalar_width=32,
+            dropout=0.00,
+            observation_contract="experimental_selfcentric_v1",
+        )
+    )
     #
     # CURRENT STATUS: active runtime knob.
     # Root-seed family assignment strategy.
@@ -960,18 +1120,27 @@ class PPOConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Minimum trajectory length required before a UID buffer is eligible for update.
-    # Smaller values update more often but with noisier estimates.
-    BATCH_SZ: int = 8
+    # Raised from 8 to 16 so per-UID updates are not driven by almost degenerate micro-rollouts.
+    # The smaller default was rejected because, together with 8 minibatches, it yields one-sample minibatches right
+    # at eligibility and amplifies gradient noise.
+    # Tradeoff: some short-lived UIDs will still die before first update; the compensating change is to shorten the
+    # update cadence rather than to keep ultra-tiny rollout thresholds.
+    BATCH_SZ: int = 16
     #
     # CURRENT STATUS: active runtime knob.
     # Number of minibatches carved from each rollout update.
-    # Must remain positive and not exceed the effective batch size.
-    MINI_BATCHES: int = 8
+    # Lowered from 8 to 4 so a minimally eligible 16-step rollout still produces usable minibatches instead of
+    # mostly singleton slices.
+    # A more aggressive reduction was rejected because it would throw away too much shuffling; the old value was
+    # rejected because it was too fragmented for the new batch threshold.
+    MINI_BATCHES: int = 4
     #
     # CURRENT STATUS: active runtime knob.
     # Maximum number of optimization passes per update.
-    # More epochs extract more signal per rollout at the risk of overfitting stale data.
-    EPOCHS: int = 4
+    # Lowered from 4 to 3 because updates are made more frequent in this profile, so the stale-data reuse budget can
+    # come down slightly without starving learning.
+    # Tradeoff: each individual update extracts a little less signal, but aggregate overnight freshness improves.
+    EPOCHS: int = 3
     #
     # CURRENT STATUS: active runtime knob.
     # Early-stop KL threshold.
@@ -1018,8 +1187,12 @@ class PPOConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Global cadence used by `should_update()`.
-    # Lower values trigger optimizer work more frequently.
-    UPDATE_EVERY_N_TICKS: int = 256
+    # Lowered from 256 to 64 because dead UIDs have their buffers cleared at finalization, so waiting too long can
+    # cause a large fraction of the population to die before ever becoming update-eligible.
+    # The default was rejected as too slow for the observed health/metabolism scales.
+    # A much lower value was rejected because it would drive very frequent optimizer traffic with little additional
+    # benefit once the batch threshold is already modest.
+    UPDATE_EVERY_N_TICKS: int = 64
 
     #
     # CURRENT STATUS: guarded compatibility surface.
@@ -1152,8 +1325,12 @@ class ViewerConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Viewer frame-rate target.
-    # Higher values make the UI smoother but demand more rendering work.
-    FPS: int = 30
+    # Raised from 30 to 45 because the viewer advances roughly two engine ticks per rendered frame at default speed,
+    # so this also increases overnight progress throughput.
+    # The supplied machine appears strong enough to justify a moderate increase, but an extreme value was rejected
+    # because unattended laptop thermals and CPU fallback scenarios remain uncertain from the supplied evidence.
+    # Tradeoff: higher render load and potentially more heat/noise during a long run.
+    FPS: int = 45
     #
     # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
     # Audit basis: no direct `.VIEW.PAINT_BRUSH` runtime read was found in the code dump.
@@ -1235,13 +1412,19 @@ class LogConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Primary telemetry/log cadence in ticks.
-    # Larger values reduce logging overhead and granularity.
-    LOG_TICK_EVERY: int = 250
+    # Raised from 250 to 20000 because the default is far too chatty for an unattended overnight run.
+    # Expected effect: dramatically lower console spam while still giving occasional heartbeat prints.
+    # Tradeoff: less immediate textual visibility into short-timescale swings.
+    LOG_TICK_EVERY: int = 20000
     #
     # CURRENT STATUS: active runtime knob.
     # Snapshot cadence in ticks.
-    # Higher values emit fewer snapshots.
-    SNAPSHOT_EVERY: int = 500
+    # Raised from 500 to 1_000_000 because each snapshot path writes dense registry data, heatmaps, and a full brain
+    # bundle.
+    # The default was rejected as operationally absurd for a long unattended run; scheduled runtime checkpoints are
+    # the primary safety surface here, so snapshots are intentionally rare.
+    # Tradeoff: fewer intermediate standalone snapshot artifacts.
+    SNAPSHOT_EVERY: int = 1_000_000
     #
     # CURRENT STATUS: active runtime knob.
     # Master assertion toggle used by invariant checks.
@@ -1416,13 +1599,18 @@ class CheckpointConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Periodic runtime checkpoint cadence.
-    # Set `0` to disable scheduled runtime checkpoints.
-    SAVE_EVERY_TICKS: int = 0  # 0 disables periodic runtime checkpoints; positive values publish a checkpoint every N ticks.
+    # Enabled at 100_000 ticks because an overnight profile should not rely on a single uninterrupted process for all
+    # progress preservation.
+    # The disabled default was rejected because it offers no periodic safety net against crashes, power loss, or
+    # late-run ecological collapse that the operator may wish to rewind.
+    # Tradeoff: occasional heavier I/O and checkpoint serialization work.
+    SAVE_EVERY_TICKS: int = 100_000  # Positive value enables scheduled atomic runtime checkpoints.
     #
     # CURRENT STATUS: active runtime knob.
     # Retention count for scheduled runtime checkpoints.
-    # Use `<= 0` to keep every produced checkpoint.
-    KEEP_LAST: int = 3  # Retention count for scheduler-produced runtime checkpoints; <=0 keeps every checkpoint.
+    # Raised from 3 to 8 so the overnight run keeps a useful rollback window instead of only the most recent tail.
+    # A much larger value was rejected because full substrate checkpoints include optimizer state and can grow bulky.
+    KEEP_LAST: int = 8  # Retention count for scheduler-produced runtime checkpoints; <=0 keeps every checkpoint.
     #
     # CURRENT STATUS: active runtime knob.
     # Name of the subdirectory used for runtime checkpoints within a run directory.
@@ -1490,6 +1678,35 @@ class CheckpointConfig:
     # Prefix used for temp files during atomic checkpoint publish.
     # Pathing / hygiene knob.
     TEMPFILE_PREFIX: str = ".tmp_ckpt_"
+    #
+    # CURRENT STATUS: active launch/resume knob.
+    # Canonical launch intent. Supported values are:
+    # - "fresh_run": build a new world from config
+    # - "resume_exact": deterministic continuation intent; drift/fork deltas reject
+    # - "resume_with_drift": restore substrate while explicitly accepting narrow operator/cadence drift
+    # - "fork_from_checkpoint": restore a checkpoint as the ancestor of a deliberately changed run
+    LAUNCH_MODE: str = "fresh_run"
+    #
+    # CURRENT STATUS: active launch/resume knob.
+    # Explicit checkpoint bundle, checkpoint directory, or latest-pointer path used by checkpoint-backed launch modes.
+    LOAD_PATH: str = ""
+    #
+    # CURRENT STATUS: active launch/resume knob.
+    # Operator-visible reason recorded when `LAUNCH_MODE="fork_from_checkpoint"`.
+    FORK_REASON: str = ""
+    #
+    # CURRENT STATUS: active launch/resume reporting knob.
+    # Writes `resume_compatibility_report.json` into the new session directory for checkpoint-backed launches.
+    WRITE_COMPATIBILITY_REPORT: bool = True
+    #
+    # CURRENT STATUS: active compatibility knob.
+    # Policy for old checkpoints without stage-1 resume-contract metadata. The conservative default infers what it can
+    # and labels the report as legacy-inferred; "reject" blocks such checkpoints at resume-policy resolution.
+    LEGACY_METADATA_POLICY: str = "infer_conservative"
+    #
+    # Compatibility surface categories used by the stage-1 resume policy:
+    # hard-fixed, allowed drift, fork-only, ignored-on-resume, blocked.
+    COMPATIBILITY_REPORT_FILENAME: str = "resume_compatibility_report.json"
 
 
 @dataclass
@@ -1542,13 +1759,17 @@ class TelemetryConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Cadence for family-summary rows.
-    # Higher values reduce volume.
-    FAMILY_SUMMARY_EVERY_TICKS: int = 1
+    # Raised from 1 to 128 because the standard launch path is single-family and per-tick family rows are therefore
+    # much less information-dense than they would be in a true multi-family run.
+    # Expected effect: much lower telemetry volume with little loss of overnight interpretability.
+    FAMILY_SUMMARY_EVERY_TICKS: int = 128
     #
     # CURRENT STATUS: active runtime knob.
     # Cadence for exporting summary rows.
-    # Set above `1` to reduce per-tick I/O overhead.
-    SUMMARY_EXPORT_CADENCE_TICKS: int = 1  # Tick-summary export cadence; 1 preserves per-tick ledgers.
+    # Raised from 1 to 64 so the run still produces rich summaries, but not at an every-tick I/O cost.
+    # The per-tick default was rejected because it is disproportionately expensive for long unattended horizons.
+    # Tradeoff: summary plots become slightly coarser in time.
+    SUMMARY_EXPORT_CADENCE_TICKS: int = 64  # Tick-summary export cadence for the overnight profile.
     #
     # CURRENT STATUS: active runtime knob.
     # Whether summary aggregation work is skipped on non-emission ticks.
@@ -1568,8 +1789,10 @@ class TelemetryConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Buffered flush threshold per ledger.
-    # Larger values reduce write overhead but delay visibility.
-    PARQUET_BATCH_ROWS: int = 64  # Buffered parquet flush threshold per ledger; larger batches trade visibility for lower overhead.
+    # Raised from 64 to 4096 so summary/event exports amortize disk writes over larger batches.
+    # The default was rejected because it flushes far too eagerly for an overnight run with enabled ledgers.
+    # Tradeoff: rows remain buffered longer before they appear on disk.
+    PARQUET_BATCH_ROWS: int = 4096  # Buffered parquet flush threshold per ledger for long unattended runs.
     #
     # CURRENT STATUS: active runtime knob.
     # Whether still-open life records are flushed on shutdown.
@@ -1619,6 +1842,11 @@ class ValidationConfig:
     # Whether catastrophe reproducibility probes are run.
     # Useful when modifying scheduler or catastrophe state surfaces.
     ENABLE_CATASTROPHE_REPRO_TESTS: bool = True
+    #
+    # CURRENT STATUS: active runtime knob.
+    # Whether stage-1 checkpoint launch-mode compatibility probes are run.
+    # These verify exact/drift/fork classification without changing simulation rules.
+    ENABLE_RESUME_POLICY_TESTS: bool = True
     #
     # CURRENT STATUS: currently unread / effectively dead in the uploaded repository dump.
     # Audit basis: no direct `.VALIDATION.VALIDATION_STRICTNESS` runtime read was found in the code dump.
@@ -1699,14 +1927,19 @@ class CatastropheConfig:
     #
     # CURRENT STATUS: active runtime knob.
     # Default catastrophe scheduler mode.
-    # Supported modes are `"off"`, `"manual_only"`, `"auto_dynamic"`, and `"auto_static"`.
-    # This determines how a fresh run begins.
-    DEFAULT_MODE: str = "auto_dynamic"  # off | manual_only | auto_dynamic | auto_static
+    # Switched from `auto_dynamic` to `manual_only` for the overnight profile.
+    # The automatic scheduler default was rejected because several catastrophe types directly increase damage,
+    # suppress healing, or disable reproduction, which is the opposite of what a first-pass stability-and-emergence
+    # profile should optimize for.
+    # Manual mode preserves the full control surface for later interactive experiments without injecting unattended
+    # night-time shocks.
+    DEFAULT_MODE: str = "manual_only"  # off | manual_only | auto_dynamic | auto_static
     #
     # CURRENT STATUS: active runtime knob.
     # Whether a fresh run starts with the auto scheduler armed whenever the active mode is an auto mode.
-    # This does not change the selected mode; it controls whether scheduler-driven starts are live at boot.
-    DEFAULT_SCHEDULER_ARMED: bool = True
+    # Set to False so no hidden scheduler activation survives mode changes at boot.
+    # This is intentionally conservative: the overnight run should not be ambushed by automatic catastrophes.
+    DEFAULT_SCHEDULER_ARMED: bool = False
     #
     # CURRENT STATUS: active runtime knob.
     # Whether operator-triggered catastrophes are allowed.

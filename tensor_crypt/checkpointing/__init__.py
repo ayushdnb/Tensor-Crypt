@@ -17,16 +17,24 @@ from .runtime_checkpoint import (
     validate_checkpoint_artifacts,
     validate_runtime_checkpoint,
 )
+from .resume_policy import (
+    build_resume_compatibility_report,
+    normalize_launch_mode,
+    resolve_resume_request,
+)
 
 __all__ = [
     "atomic_save_checkpoint_files",
     "capture_runtime_checkpoint",
+    "build_resume_compatibility_report",
     "latest_pointer_path_for",
     "load_checkpoint_bundle",
     "load_latest_checkpoint_pointer",
     "load_runtime_checkpoint",
     "manifest_path_for",
+    "normalize_launch_mode",
     "resolve_latest_checkpoint_bundle",
+    "resolve_resume_request",
     "restore_runtime_checkpoint",
     "save_runtime_checkpoint",
     "validate_checkpoint_artifacts",

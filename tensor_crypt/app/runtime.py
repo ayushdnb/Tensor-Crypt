@@ -1,9 +1,9 @@
 """
 Runtime assembly for Tensor Crypt.
 
-The runtime builder wires together the stable subsystem graph for one
-simulation run. This module is intentionally allowed to know about many
-subsystems at once because assembly is its sole responsibility.
+This module assembles the stable subsystem graph for a single simulation run.
+It is intentionally allowed to depend on many subsystems at once because
+assembly, validation, and launch-order preservation are its sole concerns.
 
 Critical invariant:
 - the order of map generation, initial spawn, engine construction, and viewer
@@ -16,11 +16,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import random
+from types import SimpleNamespace
+
 import numpy as np
 import torch
 
 from ..config_bridge import cfg
 from ..agents.state_registry import Registry
+from ..checkpointing.runtime_checkpoint import restore_runtime_checkpoint
 from ..learning.ppo import PPO
 from ..population.evolution import Evolution
 from ..simulation.engine import Engine, validate_ppo_reward_config
@@ -35,6 +38,7 @@ from ..world.spatial_grid import Grid
 SUPPORTED_GRID_OVERLAP_MODES = frozenset({"max_abs", "sum_clamped", "last_wins"})
 SUPPORTED_SPAWN_MODES = frozenset({"uniform"})
 SUPPORTED_METAB_FORMS = frozenset({"affine_combo"})
+SUPPORTED_OBS_MODES = frozenset({"canonical_v2", "experimental_selfcentric_v1"})
 SUPPORTED_INITIAL_FAMILY_ASSIGNMENTS = frozenset({"round_robin", "weighted_random"})
 SUPPORTED_RESPAWN_MODES = frozenset({"binary_parented"})
 SUPPORTED_ANCHOR_PARENT_SELECTORS = frozenset({"brain_parent", "trait_parent", "random_parent", "fitter_of_two"})
@@ -51,6 +55,8 @@ SUPPORTED_RESPAWN_COOLDOWN_EMPTY_POOL_POLICIES = frozenset({"allow_best_availabl
 SUPPORTED_RESPAWN_COOLDOWN_BELOW_FLOOR_POLICIES = frozenset({"allow_best_available", "bypass", "strict"})
 SUPPORTED_RESPAWN_LOCAL_PARENT_FALLBACK_POLICIES = frozenset({"global", "strict"})
 SUPPORTED_RESPAWN_LOCAL_PARENT_BELOW_FLOOR_POLICIES = frozenset({"prefer_local_then_global", "bypass", "strict"})
+SUPPORTED_CHECKPOINT_LAUNCH_MODES = frozenset({"fresh_run", "resume_exact", "resume_with_drift", "fork_from_checkpoint"})
+SUPPORTED_LEGACY_METADATA_POLICIES = frozenset({"infer_conservative", "reject"})
 
 
 @dataclass
@@ -92,6 +98,7 @@ def validate_runtime_config() -> None:
     _require_choice("GRID.HZ_OVERLAP_MODE", cfg.GRID.HZ_OVERLAP_MODE, SUPPORTED_GRID_OVERLAP_MODES)
     _require_choice("AGENTS.SPAWN_MODE", cfg.AGENTS.SPAWN_MODE, SUPPORTED_SPAWN_MODES)
     _require_choice("TRAITS.METAB_FORM", cfg.TRAITS.METAB_FORM, SUPPORTED_METAB_FORMS)
+    _require_choice("PERCEPT.OBS_MODE", cfg.PERCEPT.OBS_MODE, SUPPORTED_OBS_MODES)
     _require_choice("BRAIN.INITIAL_FAMILY_ASSIGNMENT", cfg.BRAIN.INITIAL_FAMILY_ASSIGNMENT, SUPPORTED_INITIAL_FAMILY_ASSIGNMENTS)
     _require_choice("RESPAWN.MODE", cfg.RESPAWN.MODE, SUPPORTED_RESPAWN_MODES)
     _require_choice("RESPAWN.ANCHOR_PARENT_SELECTOR", cfg.RESPAWN.ANCHOR_PARENT_SELECTOR, SUPPORTED_ANCHOR_PARENT_SELECTORS)
@@ -136,8 +143,32 @@ def validate_runtime_config() -> None:
         cfg.CATASTROPHE.AUTO_STATIC_ORDERING_POLICY,
         SUPPORTED_CATASTROPHE_STATIC_ORDERING,
     )
+    launch_mode = _require_choice("CHECKPOINT.LAUNCH_MODE", cfg.CHECKPOINT.LAUNCH_MODE, SUPPORTED_CHECKPOINT_LAUNCH_MODES)
+    _require_choice(
+        "CHECKPOINT.LEGACY_METADATA_POLICY",
+        cfg.CHECKPOINT.LEGACY_METADATA_POLICY,
+        SUPPORTED_LEGACY_METADATA_POLICIES,
+    )
 
     validate_ppo_reward_config()
+
+    if cfg.BRAIN.EXPERIMENTAL_BRANCH_PRESET:
+        if str(cfg.PERCEPT.OBS_MODE) != "experimental_selfcentric_v1":
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_PRESET requires PERCEPT.OBS_MODE='experimental_selfcentric_v1'"
+            )
+        if not bool(cfg.PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS):
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_PRESET requires PERCEPT.RETURN_EXPERIMENTAL_OBSERVATIONS=True"
+            )
+        if str(cfg.BRAIN.EXPERIMENTAL_BRANCH_FAMILY) not in set(cfg.BRAIN.FAMILY_ORDER):
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_FAMILY must be present in BRAIN.FAMILY_ORDER"
+            )
+        if cfg.EVOL.ENABLE_FAMILY_SHIFT_MUTATION:
+            raise ValueError(
+                "BRAIN.EXPERIMENTAL_BRANCH_PRESET requires EVOL.ENABLE_FAMILY_SHIFT_MUTATION=False to preserve one-family ownership semantics"
+            )
 
     if int(cfg.LOG.LOG_TICK_EVERY) <= 0:
         raise ValueError("LOG.LOG_TICK_EVERY must be positive")
@@ -212,6 +243,8 @@ def validate_runtime_config() -> None:
         raise ValueError(
             "CHECKPOINT.WRITE_LATEST_POINTER requires manifest publication in the current runtime (ATOMIC_WRITE_ENABLED, MANIFEST_ENABLED, and SAVE_CHECKPOINT_MANIFEST)"
         )
+    if launch_mode != "fresh_run" and not str(cfg.CHECKPOINT.LOAD_PATH).strip():
+        raise ValueError("CHECKPOINT.LOAD_PATH is required when CHECKPOINT.LAUNCH_MODE is checkpoint-backed")
 
 
 def setup_determinism() -> None:
@@ -228,23 +261,27 @@ def setup_determinism() -> None:
         torch.backends.cudnn.benchmark = False
 
 
-def build_runtime(run_dir: str) -> SimulationRuntime:
-    """
-    Assemble the simulation and viewer graph.
-
-    This function preserves the original launch sequence after the logging path
-    has been chosen by the outer entrypoint.
-    """
-
-    validate_runtime_config()
+def _build_substrate_objects(run_dir: str):
     data_logger = DataLogger(run_dir)
-
     grid = Grid()
     registry = Registry()
     physics = Physics(grid, registry)
     perception = Perception(grid, registry)
     ppo = PPO()
     evolution = Evolution(registry)
+    return data_logger, grid, registry, physics, perception, ppo, evolution
+
+
+def build_fresh_runtime(run_dir: str) -> SimulationRuntime:
+    """
+    Assemble a fresh simulation and viewer graph.
+
+    This path intentionally performs map generation, root spawning, and root
+    telemetry bootstrap.
+    """
+
+    validate_runtime_config()
+    data_logger, grid, registry, physics, perception, ppo, evolution = _build_substrate_objects(run_dir)
 
     print("Generating procedural map...")
     add_random_walls(grid)
@@ -254,7 +291,16 @@ def build_runtime(run_dir: str) -> SimulationRuntime:
 
     registry.spawn_initial_population(grid)
 
-    engine = Engine(grid, registry, physics, perception, ppo, evolution, data_logger)
+    engine = Engine(
+        grid,
+        registry,
+        physics,
+        perception,
+        ppo,
+        evolution,
+        data_logger,
+        bootstrap_initial_population=True,
+    )
     viewer = Viewer(engine)
 
     return SimulationRuntime(
@@ -270,3 +316,65 @@ def build_runtime(run_dir: str) -> SimulationRuntime:
         viewer=viewer,
     )
 
+
+def build_resume_runtime(run_dir: str, bundle: dict) -> SimulationRuntime:
+    """
+    Assemble a side-effect-minimal scaffold and restore a checkpoint into it.
+
+    Resume/fork launches must not run procedural map generation, root spawning,
+    or root bootstrap telemetry before restore.
+    """
+
+    validate_runtime_config()
+    data_logger, grid, registry, physics, perception, ppo, evolution = _build_substrate_objects(run_dir)
+    engine = Engine(
+        grid,
+        registry,
+        physics,
+        perception,
+        ppo,
+        evolution,
+        data_logger,
+        bootstrap_initial_population=False,
+    )
+
+    restore_target = SimpleNamespace(
+        run_dir=run_dir,
+        data_logger=data_logger,
+        grid=grid,
+        registry=registry,
+        physics=physics,
+        perception=perception,
+        ppo=ppo,
+        evolution=evolution,
+        engine=engine,
+    )
+    restore_runtime_checkpoint(restore_target, bundle)
+    viewer = Viewer(engine)
+    return SimulationRuntime(
+        run_dir=run_dir,
+        data_logger=data_logger,
+        grid=grid,
+        registry=registry,
+        physics=physics,
+        perception=perception,
+        ppo=ppo,
+        evolution=evolution,
+        engine=engine,
+        viewer=viewer,
+    )
+
+
+def build_runtime(run_dir: str) -> SimulationRuntime:
+    """Backward-compatible fresh-run assembly surface."""
+    return build_fresh_runtime(run_dir)
+
+
+__all__ = [
+    "SimulationRuntime",
+    "build_fresh_runtime",
+    "build_resume_runtime",
+    "build_runtime",
+    "setup_determinism",
+    "validate_runtime_config",
+]

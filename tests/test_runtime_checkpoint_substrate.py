@@ -28,6 +28,8 @@ def test_checkpoint_bundle_contains_identity_and_rng_substrate(runtime_builder):
     assert bundle["registry_state"]["slot_parent_uid"].dtype == torch.int64
     assert bundle["rng_state"] is not None
     assert {"python_random_state", "numpy_random_state", "torch_cpu_rng_state", "torch_cuda_rng_state_all"}.issubset(bundle["rng_state"].keys())
+    assert bundle["metadata"]["resume_contract"]["resume_taxonomy_version"] == 1
+    assert bundle["metadata"]["resume_contract"]["capture_presence"]["rng_state_present"] is True
 
 
 def test_checkpoint_validation_rejects_duplicate_active_uid(runtime_builder):

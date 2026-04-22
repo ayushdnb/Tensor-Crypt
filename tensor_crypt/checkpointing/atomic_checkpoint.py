@@ -106,6 +106,8 @@ def build_checkpoint_manifest(bundle: dict, bundle_path: str | Path) -> dict:
     ppo_state = bundle.get("ppo_state", {})
     checksum = _sha256_file(bundle_path) if cfg.CHECKPOINT.CHECKSUM_ENABLED else None
     config_snapshot = bundle.get("config_snapshot", {})
+    resume_contract = bundle.get("metadata", {}).get("resume_contract", {})
+    exact_capability = resume_contract.get("exact_resume_capability", {})
     return {
         "checkpoint_schema_version": int(bundle["checkpoint_schema_version"]),
         "schema_versions": dict(bundle.get("schema_versions", {})),
@@ -126,6 +128,9 @@ def build_checkpoint_manifest(bundle: dict, bundle_path: str | Path) -> dict:
         "rng_state_present": bundle.get("rng_state") is not None,
         "optimizer_state_present": bool(ppo_state.get("optimizer_state_by_uid")),
         "buffer_state_present": bool(ppo_state.get("buffer_state_by_uid")),
+        "resume_taxonomy_version": resume_contract.get("resume_taxonomy_version"),
+        "exact_resume_capable": bool(exact_capability.get("exact_resume_capable", False)),
+        "contract_hashes": dict(resume_contract.get("contract_hashes", {})),
     }
 
 
@@ -215,6 +220,8 @@ def atomic_save_checkpoint_files(bundle_path: str | Path, bundle: dict) -> dict:
                 "bundle_bytes": int(validated_manifest.get("artifact_sizes", {}).get("bundle_bytes", bundle_path.stat().st_size)),
                 "bundle_sha256": validated_manifest.get("checksums", {}).get("bundle_sha256"),
                 "config_fingerprint": validated_manifest.get("config_fingerprint"),
+                "resume_taxonomy_version": validated_manifest.get("resume_taxonomy_version"),
+                "exact_resume_capable": bool(validated_manifest.get("exact_resume_capable", False)),
             },
         )
         os.replace(temp_pointer, pointer_path)

@@ -36,6 +36,8 @@ def test_create_run_directory_deduplicates_same_timestamp(monkeypatch, tmp_path)
     assert (first / "run_metadata.json").exists()
     metadata = run_paths.build_run_metadata()
     assert metadata["schema_versions"]["IDENTITY_SCHEMA_VERSION"] == cfg.SCHEMA.IDENTITY_SCHEMA_VERSION
+    assert metadata["session"]["launch_mode_requested"] == "fresh_run"
+    assert metadata["session"]["session_kind"] == "fresh"
 
 
 def test_collision_parquet_schema_handles_empty_then_nonempty_contenders(tmp_path):

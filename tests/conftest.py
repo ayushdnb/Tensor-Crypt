@@ -89,6 +89,10 @@ def runtime_builder(tmp_path):
         cfg.RESPAWN.RESPAWN_PERIOD = 1
         cfg.LOG.LOG_TICK_EVERY = max_ticks
         cfg.LOG.SNAPSHOT_EVERY = max_ticks
+        if cfg.TELEMETRY.FAMILY_SUMMARY_EVERY_TICKS == 128:
+            cfg.TELEMETRY.FAMILY_SUMMARY_EVERY_TICKS = 1
+        if cfg.TELEMETRY.SUMMARY_EXPORT_CADENCE_TICKS == 64:
+            cfg.TELEMETRY.SUMMARY_EXPORT_CADENCE_TICKS = 1
         cfg.EVOL.POLICY_NOISE_SD = policy_noise
         setup_determinism()
         run_dir = create_run_directory()
