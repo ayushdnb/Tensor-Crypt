@@ -27,6 +27,7 @@ Tensor_Crypt/
     *.py                  # compatibility re-exports only
   docs/
     architecture/
+    heavy_tech_documents/
     technical_documents/
   config.py
   run.py

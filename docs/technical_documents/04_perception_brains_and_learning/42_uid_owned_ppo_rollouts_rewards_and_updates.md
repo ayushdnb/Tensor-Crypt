@@ -41,7 +41,7 @@ The live base reward is:
 - clamp `hp / hp_max` into `[0, 1]`
 - square the result
 
-The test suite also confirms that negative HP values are clamped before squaring in the live reward path.
+Full-source validation also confirmed that negative HP values are clamped before squaring in the live reward path.
 
 ## Reward Gating
 

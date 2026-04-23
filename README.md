@@ -42,6 +42,7 @@ Tensor Crypt is a simulation and learning project. It is not a cryptography libr
 |-- viewer/                   # Thin legacy import compatibility package
 `-- docs/
     |-- architecture/         # Public architecture and compatibility notes
+    |-- heavy_tech_documents/ # Full technical corpus and diagram assets
     `-- technical_documents/  # Technical reference chapters
 ```
 
@@ -167,6 +168,7 @@ Runtime-generated outputs under `logs/`, `artifacts/`, checkpoints, selected-bra
 - [Architecture overview](docs/architecture/overview.md)
 - [Compatibility notes](docs/architecture/compatibility.md)
 - [Technical document index](docs/technical_documents/00_meta/00_documentation_bundle_index.md)
+- [Heavy technical documentation index](docs/heavy_tech_documents/00_program/00_documentation_index_and_reading_guide.md)
 
 ## License
 

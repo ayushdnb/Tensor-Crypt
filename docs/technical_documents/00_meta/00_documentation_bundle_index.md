@@ -10,6 +10,8 @@ This document does not explain subsystem behavior in depth. Runtime mechanics, l
 
 This index governs the technical-document bundle only. It does not replace the repository README or source tree. When a prose claim conflicts with the implementation, the implementation remains authoritative until the documentation is repaired.
 
+The broader long-form corpus is restored under `docs/heavy_tech_documents/`. That corpus is a companion layer for extended study, diagrams, and reference navigation; this `docs/technical_documents/` bundle remains the compact technical entrypoint.
+
 ## Evidence Basis
 
 The bundle is grounded in the current repository tree, with primary reliance on:
