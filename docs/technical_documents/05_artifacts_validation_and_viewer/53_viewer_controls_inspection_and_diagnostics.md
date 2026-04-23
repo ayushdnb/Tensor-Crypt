@@ -18,7 +18,6 @@ This chapter is grounded in:
 - `tensor_crypt.viewer.layout`
 - `tensor_crypt.viewer.camera`
 - `tensor_crypt.viewer.colors`
-- tests including `tests/test_viewer_layout_cleanup.py`, `tests/test_viewer_color_semantics.py`, and `tests/test_engine_and_viewer_integration.py`
 
 ## Window and Layout
 
@@ -77,7 +76,7 @@ The viewer exposes two deliberate operator actions:
 - `Ctrl+S` and the side-panel Save action publish a manual checkpoint through `Engine.publish_runtime_checkpoint(...)` with save reason `manual_operator`.
 - `Ctrl+E` and the side-panel Export action export only the live selected agent's brain through `DataLogger.export_selected_brain(...)`.
 
-Selected-brain exports land below the logger-managed `brains/selected_exports/uid_<uid>/` hierarchy and include both a `.pt` weight bundle and a `.json` metadata sidecar.
+Selected-brain exports land below the logger-managed `brains/selected_exports/u<uid>/` hierarchy and include both a `.pt` weight bundle and a `.json` metadata sidecar.
 
 ## Catastrophe Diagnostics
 

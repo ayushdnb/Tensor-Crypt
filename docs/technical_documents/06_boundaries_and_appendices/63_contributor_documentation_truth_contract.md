@@ -64,7 +64,6 @@ For substantial documentation changes, contributors should re-check at least:
 ## Required Placement Rules
 
 - published technical chapters remain in the numbered public folders
-- figure or table assets, when added, belong under `99_assets/`
 
 ## Required Honesty About Uncertainty
 

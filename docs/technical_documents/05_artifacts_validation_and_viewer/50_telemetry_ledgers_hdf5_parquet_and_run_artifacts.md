@@ -16,7 +16,6 @@ This chapter is grounded in:
 - `tensor_crypt.telemetry.data_logger`
 - `tensor_crypt.telemetry.lineage_export`
 - `tensor_crypt.simulation.engine`
-- tests including `tests/test_logging_and_run_paths.py`, `tests/test_telemetry_ledgers.py`, and `tests/test_verification_telemetry_integrity.py`
 
 ## Run Directory Creation
 
@@ -89,8 +88,8 @@ This is separate from runtime checkpoints. Brain snapshots do not by themselves 
 
 Operator-selected live brain exports are written under:
 
-- `brains/selected_exports/uid_<uid>/uid_<uid>_tick_<tick>_slot_<slot>_<family>.pt`
-- `brains/selected_exports/uid_<uid>/uid_<uid>_tick_<tick>_slot_<slot>_<family>.json`
+- `brains/selected_exports/u<uid>/t<tick>_s<slot>_<family>.pt`
+- `brains/selected_exports/u<uid>/t<tick>_s<slot>_<family>.json`
 
 These exports are deliberate inspection artifacts for the live selected agent. They carry weights plus identity, family, topology, lineage, session, and PPO-state metadata, but they are not full runtime checkpoints.
 

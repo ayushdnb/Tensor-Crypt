@@ -183,13 +183,13 @@ def atomic_save_checkpoint_files(bundle_path: str | Path, bundle: dict) -> dict:
 
     bundle_fd, tmp_bundle_name = tempfile.mkstemp(
         dir=str(bundle_path.parent),
-        prefix=cfg.CHECKPOINT.TEMPFILE_PREFIX,
-        suffix=f"_{bundle_path.name}.tmp",
+        prefix=f"{cfg.CHECKPOINT.TEMPFILE_PREFIX}bundle_",
+        suffix=f"{bundle_path.suffix}.tmp",
     )
     manifest_fd, tmp_manifest_name = tempfile.mkstemp(
         dir=str(bundle_path.parent),
-        prefix=cfg.CHECKPOINT.TEMPFILE_PREFIX,
-        suffix=f"_{manifest_path.name}.tmp",
+        prefix=f"{cfg.CHECKPOINT.TEMPFILE_PREFIX}manifest_",
+        suffix=f"{manifest_path.suffix}.tmp",
     )
     os.close(bundle_fd)
     os.close(manifest_fd)

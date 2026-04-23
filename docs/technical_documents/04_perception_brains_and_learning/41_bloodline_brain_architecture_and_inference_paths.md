@@ -15,7 +15,6 @@ This chapter is grounded in:
 - `tensor_crypt.agents.brain`
 - `tensor_crypt.simulation.engine`
 - `tensor_crypt.runtime_config`
-- tests including `tests/test_bloodline_brains.py` and `tests/test_experimental_family_vmap_inference.py`
 
 ## Family Roster
 

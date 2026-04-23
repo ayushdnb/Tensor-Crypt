@@ -22,6 +22,6 @@
 
 ## Scope of Compatibility
 
-- Compatibility is guaranteed for source-tree execution, package builds, and repository test contracts.
+- Compatibility is maintained for source-tree execution, package builds, and the public entry surfaces listed above.
 - Wrapper modules remain intentionally thin and contain no business logic.
 - No compatibility layer owns simulation, PPO, checkpointing, telemetry, or viewer semantics.

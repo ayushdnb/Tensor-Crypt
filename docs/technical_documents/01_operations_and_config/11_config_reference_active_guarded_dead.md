@@ -151,4 +151,4 @@ The following edits are technically possible to write in config but should be tr
 
 ## Practical Guidance
 
-For ordinary operator work, prefer [D12](./12_experiment_recipes_and_safe_knob_sets.md). For identity-sensitive interpretation, continue to [D22](../02_system_foundations/22_state_identity_lineage_and_ownership_contracts.md). For artifact-sensitive interpretation, continue to [D50](../05_artifacts_validation_and_viewer/50_telemetry_ledgers_hdf5_parquet_and_run_artifacts.md) and [D51](../05_artifacts_validation_and_viewer/51_checkpointing_atomic_publish_resume_and_schema_safety.md).
+For ordinary operator work, start with [D10](./10_operator_runbook_and_game_manual.md). For identity-sensitive interpretation, continue to [D22](../02_system_foundations/22_state_identity_lineage_and_ownership_contracts.md). For artifact-sensitive interpretation, continue to [D50](../05_artifacts_validation_and_viewer/50_telemetry_ledgers_hdf5_parquet_and_run_artifacts.md) and [D51](../05_artifacts_validation_and_viewer/51_checkpointing_atomic_publish_resume_and_schema_safety.md).

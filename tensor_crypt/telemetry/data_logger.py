@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import time
 from typing import Optional
@@ -95,6 +96,15 @@ _SPAWN_LEDGER_SCHEMA = pa.schema(
         pa.field("reproduction_schema_version", pa.int64()),
     ]
 )
+
+
+def _filesystem_write_path(path: str | Path) -> str:
+    path = Path(path)
+    if os.name == "nt":
+        resolved = str(path.resolve())
+        if not resolved.startswith("\\\\?\\"):
+            return "\\\\?\\" + resolved
+    return str(path)
 
 
 class DataLogger:
@@ -474,7 +484,7 @@ class DataLogger:
             "tick": tick,
             "schema_versions": self._schema_versions(),
         }
-        torch.save(payload, str(self.brains_dir / f"brains_tick_{tick}.pt"))
+        torch.save(payload, _filesystem_write_path(self.brains_dir / f"brains_tick_{tick}.pt"))
 
     @staticmethod
     def _slug_for_artifact(value: object) -> str:
@@ -491,11 +501,11 @@ class DataLogger:
         }
 
     def _selected_brain_export_paths(self, *, uid: int, slot_idx: int, tick: int, family_id: str) -> tuple[Path, Path, str]:
-        export_root = self.brains_dir / str(cfg.TELEMETRY.SELECTED_BRAIN_EXPORT_DIRECTORY_NAME) / f"uid_{int(uid):08d}"
+        export_root = self.brains_dir / str(cfg.TELEMETRY.SELECTED_BRAIN_EXPORT_DIRECTORY_NAME) / f"u{int(uid):08d}"
         export_root.mkdir(parents=True, exist_ok=True)
 
         family_slug = self._slug_for_artifact(family_id)
-        basename = f"uid_{int(uid):08d}_tick_{int(tick):08d}_slot_{int(slot_idx):04d}_{family_slug}"
+        basename = f"t{int(tick):08d}_s{int(slot_idx):04d}_{family_slug}"
         for suffix_idx in range(1000):
             suffix = "" if suffix_idx == 0 else f"_{suffix_idx:02d}"
             candidate_base = f"{basename}{suffix}"
@@ -581,8 +591,8 @@ class DataLogger:
             "metadata": metadata,
             "state_dict": self._clone_state_dict_cpu(brain.state_dict()),
         }
-        torch.save(payload, str(pt_path))
-        with json_path.open("w", encoding="utf-8") as handle:
+        torch.save(payload, _filesystem_write_path(pt_path))
+        with open(_filesystem_write_path(json_path), "w", encoding="utf-8") as handle:
             json.dump(metadata, handle, indent=2, sort_keys=True)
             handle.write("\n")
 

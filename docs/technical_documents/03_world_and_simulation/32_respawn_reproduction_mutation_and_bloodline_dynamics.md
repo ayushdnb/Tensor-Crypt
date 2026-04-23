@@ -16,7 +16,6 @@ This chapter is grounded in:
 - `tensor_crypt.population.reproduction`
 - `tensor_crypt.population.evolution`
 - `tensor_crypt.agents.state_registry`
-- tests including `tests/test_binary_reproduction.py`, `tests/test_registry_respawn.py`, and `tests/test_bloodline_brains.py`
 
 ## Reproduction Mode
 

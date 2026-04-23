@@ -250,7 +250,7 @@ def run_catastrophe_repro_probe(runtime_factory: Callable[[], object], *, ticks:
     }
 
 
-def run_stage1_resume_policy_probe(runtime_factory: Callable[[], object], checkpoint_path: str | Path) -> dict:
+def run_resume_policy_probe(runtime_factory: Callable[[], object], checkpoint_path: str | Path) -> dict:
     snapshot = copy.deepcopy(cfg)
     checkpoint_path = Path(checkpoint_path)
     try:
@@ -353,7 +353,7 @@ def _path_is_under(path: str | Path, root: str | Path) -> bool:
         return False
 
 
-def run_stage3_manual_checkpoint_probe(runtime_factory: Callable[[], object]) -> dict:
+def run_manual_checkpoint_probe(runtime_factory: Callable[[], object]) -> dict:
     snapshot = copy.deepcopy(cfg)
     try:
         cfg.CHECKPOINT.SAVE_EVERY_TICKS = 0
@@ -398,7 +398,7 @@ def run_stage3_manual_checkpoint_probe(runtime_factory: Callable[[], object]) ->
         _restore_cfg(snapshot)
 
 
-def run_stage3_selected_brain_export_probe(runtime_factory: Callable[[], object]) -> dict:
+def run_selected_brain_export_probe(runtime_factory: Callable[[], object]) -> dict:
     runtime = runtime_factory()
     alive_slots = [int(slot_idx) for slot_idx in runtime.registry.get_alive_indices().detach().cpu().tolist()]
     if not alive_slots:
@@ -530,7 +530,7 @@ def run_logger_close_once_probe(runtime_factory: Callable[[], object]) -> dict:
     }
 
 
-def _save_source_checkpoint_for_stage2_probe(runtime_factory: Callable[[], object], checkpoint_name: str):
+def _save_source_checkpoint_for_lifecycle_probe(runtime_factory: Callable[[], object], checkpoint_name: str):
     cfg.CHECKPOINT.LAUNCH_MODE = "fresh_run"
     cfg.CHECKPOINT.LOAD_PATH = ""
     cfg.CHECKPOINT.SAVE_EVERY_TICKS = 0
@@ -554,9 +554,12 @@ def _save_source_checkpoint_for_stage2_probe(runtime_factory: Callable[[], objec
 def run_resume_telemetry_continuation_probe(runtime_factory: Callable[[], object]) -> dict:
     snapshot = copy.deepcopy(cfg)
     try:
-        source_runtime, checkpoint_path, bundle = _save_source_checkpoint_for_stage2_probe(
+        cfg.TELEMETRY.LOG_TICK_SUMMARY = True
+        cfg.TELEMETRY.SUMMARY_EXPORT_CADENCE_TICKS = 1
+        cfg.TELEMETRY.PARQUET_BATCH_ROWS = 1
+        source_runtime, checkpoint_path, bundle = _save_source_checkpoint_for_lifecycle_probe(
             runtime_factory,
-            "stage2_source.pt",
+            "lifecycle_source.pt",
         )
         root_hdf_path = Path(source_runtime.data_logger.run_dir) / "simulation_data.hdf5"
         root_hdf_mtime_before = root_hdf_path.stat().st_mtime_ns
@@ -609,9 +612,9 @@ def run_resume_telemetry_continuation_probe(runtime_factory: Callable[[], object
 def run_fork_vs_continue_telemetry_policy_probe(runtime_factory: Callable[[], object]) -> dict:
     snapshot = copy.deepcopy(cfg)
     try:
-        source_runtime, checkpoint_path, bundle = _save_source_checkpoint_for_stage2_probe(
+        source_runtime, checkpoint_path, bundle = _save_source_checkpoint_for_lifecycle_probe(
             runtime_factory,
-            "stage2_fork_source.pt",
+            "lifecycle_fork_source.pt",
         )
         exact_report = resolve_resume_request(
             requested_mode="resume_exact",
@@ -670,8 +673,8 @@ def run_final_validation_suite(
             "catastrophe": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "save_load_save": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "resume_policy": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
-            "stage2_lifecycle": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
-            "stage3_operator_artifacts": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
+            "runtime_lifecycle": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
+            "operator_artifacts": _skipped_check("ENABLE_FINAL_AUDIT_HARNESS is disabled"),
             "all_passed": True,
             "skipped": True,
         }
@@ -682,8 +685,8 @@ def run_final_validation_suite(
         "catastrophe": _skipped_check("ENABLE_CATASTROPHE_REPRO_TESTS is disabled"),
         "save_load_save": _skipped_check("ENABLE_SAVE_LOAD_SAVE_TESTS is disabled"),
         "resume_policy": _skipped_check("ENABLE_RESUME_POLICY_TESTS is disabled"),
-        "stage2_lifecycle": _skipped_check("ENABLE_STAGE2_LIFECYCLE_TESTS is disabled"),
-        "stage3_operator_artifacts": _skipped_check("ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS is disabled"),
+        "runtime_lifecycle": _skipped_check("ENABLE_RUNTIME_LIFECYCLE_TESTS is disabled"),
+        "operator_artifacts": _skipped_check("ENABLE_OPERATOR_ARTIFACT_TESTS is disabled"),
     }
 
     if cfg.VALIDATION.ENABLE_DETERMINISM_TESTS:
@@ -703,14 +706,14 @@ def run_final_validation_suite(
     if cfg.VALIDATION.ENABLE_SAVE_LOAD_SAVE_TESTS:
         report["save_load_save"] = save_load_save_surface_signature(runtime_factory, checkpoint_path)
     if cfg.VALIDATION.ENABLE_RESUME_POLICY_TESTS:
-        report["resume_policy"] = run_stage1_resume_policy_probe(runtime_factory, checkpoint_path)
-    if cfg.VALIDATION.ENABLE_STAGE2_LIFECYCLE_TESTS:
+        report["resume_policy"] = run_resume_policy_probe(runtime_factory, checkpoint_path)
+    if cfg.VALIDATION.ENABLE_RUNTIME_LIFECYCLE_TESTS:
         wallclock = run_wallclock_autosave_probe(runtime_factory)
         shutdown = run_shutdown_checkpoint_probe(runtime_factory)
         close_once = run_logger_close_once_probe(runtime_factory)
         continuation = run_resume_telemetry_continuation_probe(runtime_factory)
         fork_policy = run_fork_vs_continue_telemetry_policy_probe(runtime_factory)
-        report["stage2_lifecycle"] = {
+        report["runtime_lifecycle"] = {
             "match": all(
                 [
                     wallclock["match"],
@@ -726,10 +729,10 @@ def run_final_validation_suite(
             "resume_telemetry_continuation": continuation,
             "fork_vs_continue_policy": fork_policy,
         }
-    if cfg.VALIDATION.ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS:
-        manual_checkpoint = run_stage3_manual_checkpoint_probe(runtime_factory)
-        selected_brain_export = run_stage3_selected_brain_export_probe(runtime_factory)
-        report["stage3_operator_artifacts"] = {
+    if cfg.VALIDATION.ENABLE_OPERATOR_ARTIFACT_TESTS:
+        manual_checkpoint = run_manual_checkpoint_probe(runtime_factory)
+        selected_brain_export = run_selected_brain_export_probe(runtime_factory)
+        report["operator_artifacts"] = {
             "match": bool(manual_checkpoint["match"] and selected_brain_export["match"]),
             "manual_checkpoint": manual_checkpoint,
             "selected_brain_export": selected_brain_export,
@@ -755,10 +758,10 @@ def run_final_validation_suite(
         )
     if cfg.VALIDATION.ENABLE_RESUME_POLICY_TESTS:
         enabled_results.append(bool(report["resume_policy"]["match"]))
-    if cfg.VALIDATION.ENABLE_STAGE2_LIFECYCLE_TESTS:
-        enabled_results.append(bool(report["stage2_lifecycle"]["match"]))
-    if cfg.VALIDATION.ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS:
-        enabled_results.append(bool(report["stage3_operator_artifacts"]["match"]))
+    if cfg.VALIDATION.ENABLE_RUNTIME_LIFECYCLE_TESTS:
+        enabled_results.append(bool(report["runtime_lifecycle"]["match"]))
+    if cfg.VALIDATION.ENABLE_OPERATOR_ARTIFACT_TESTS:
+        enabled_results.append(bool(report["operator_artifacts"]["match"]))
     report["all_passed"] = all(enabled_results) if enabled_results else True
     return report
 

@@ -16,7 +16,6 @@ This chapter is grounded in:
 - `tensor_crypt.checkpointing.atomic_checkpoint`
 - `tensor_crypt.app.runtime`
 - `tensor_crypt.learning.ppo`
-- tests including `tests/test_checkpoint_atomicity.py` and `tests/test_runtime_checkpoint_substrate.py`
 
 ## What a Runtime Checkpoint Captures
 

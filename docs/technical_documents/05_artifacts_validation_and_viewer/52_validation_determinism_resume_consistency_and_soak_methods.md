@@ -13,9 +13,8 @@ This chapter describes audit and validation harnesses, not interactive operation
 This chapter is grounded in:
 
 - `tensor_crypt.audit.final_validation`
-- `scripts/benchmark_runtime.py`
-- `scripts/run_soak_audit.py`
-- tests including `tests/test_validation_harness.py`, `tests/test_runtime_checkpoint_substrate.py`, `tests/test_verification_telemetry_integrity.py`, and `tests/test_catastrophe_scheduler_controls.py`
+- checkpoint capture and restore code under `tensor_crypt.checkpointing`
+- runtime assembly and telemetry code under `tensor_crypt.app` and `tensor_crypt.telemetry`
 
 ## Validation Harnesses in `tensor_crypt.audit.final_validation`
 
@@ -25,6 +24,9 @@ The current repository exposes the following validation helpers:
 - `run_resume_consistency_probe`
 - `run_catastrophe_repro_probe`
 - `save_load_save_surface_signature`
+- `run_resume_policy_probe`
+- `run_manual_checkpoint_probe`
+- `run_selected_brain_export_probe`
 - `run_final_validation_suite`
 
 These are validation surfaces. They should not be described as the normal operator loop or as a permanent runtime mode.
@@ -51,39 +53,13 @@ The catastrophe reproducibility probe specifically targets catastrophe-related s
 
 `run_final_validation_suite` is the repository's umbrella validation entry point for these probe families. It is the correct documentation reference when discussing the existence of a bundled validation suite.
 
-## Benchmark Harness
-
-`scripts/benchmark_runtime.py` is a headless measurement harness, not just a manual timing convenience. It produces structured JSON including fields such as:
-
-- elapsed time
-- ticks per second
-- memory summaries
-- final tick
-- final alive count
-- checkpoint-related fields when relevant
-- experimental inference-path fields when relevant
-
-This script is useful for performance-oriented comparisons, but performance conclusions still depend on the chosen configuration and environment.
-
-## Soak Audit Harness
-
-`scripts/run_soak_audit.py` is the repository's headless soak runner. It performs long-run invariant-oriented checks rather than acting as a generic benchmark.
-
-The soak path checks surfaces such as:
-
-- registry and grid finiteness
-- PPO buffer ownership consistency
-- optimizer ownership consistency
-- brain parameter finiteness
-- checkpoint round-trip surfaces at intervals
-
 ## Validation Boundaries
 
 The repository contains explicit validation machinery, but documentation should still remain careful about overclaiming:
 
-- determinism probes are evidence of testing, not a universal determinism guarantee
+- determinism probes are evidence from controlled execution, not a universal determinism guarantee
 - resume probes are evidence of continuity checks, not proof that every future schema change will remain compatible
-- benchmark outputs are measurements for a chosen run configuration, not universal performance claims
+- artifact probes verify specific runtime surfaces; they are not a substitute for reviewing the owning code paths
 
 ## Currently Unread Validation Fields
 
@@ -101,7 +77,6 @@ Readers should carry forward the following:
 
 - Tensor Crypt has explicit validation code, not merely informal testing aspirations
 - validation harnesses are separate from ordinary runtime operation
-- soak and benchmark scripts serve different purposes
 - determinism and resume discussions should remain evidence-bounded
 
 ## Cross References

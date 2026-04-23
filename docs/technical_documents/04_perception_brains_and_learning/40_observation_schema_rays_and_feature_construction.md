@@ -15,7 +15,6 @@ This chapter is grounded in:
 - `tensor_crypt.world.perception`
 - `tensor_crypt.world.observation_schema`
 - `tensor_crypt.agents.brain`
-- tests including `tests/test_perception.py` and `tests/test_bloodline_brains.py`
 
 ## Canonical Observation Surface
 

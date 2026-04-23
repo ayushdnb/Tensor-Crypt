@@ -23,7 +23,7 @@ class SimConfig:
 
     This section decides the seed, device placement, and a few top-level runtime
     behaviors that affect the whole simulation session. These are the first knobs
-    an operator should check when moving between laptop debugging, workstation
+    an operator should check when moving between local debugging, workstation
     training, or reproducibility-focused validation work.
     """
     SEED: int = 42
@@ -289,7 +289,7 @@ class PerceptionConfig:
     LEGACY_GENOME_FEATURES: int = 4
     LEGACY_POSITION_FEATURES: int = 2
     LEGACY_CONTEXT_FEATURES: int = 3
-    LEGACY_ADAPTER_MODE: str = "prompt2_canonical_bridge_v1"
+    LEGACY_ADAPTER_MODE: str = "canonical_bridge_v1"
 
     ZONE_RATE_ABS_MAX: float = 1.0
     AGE_NORM_TICKS: int = 1024
@@ -623,8 +623,8 @@ class ValidationConfig:
     ENABLE_SAVE_LOAD_SAVE_TESTS: bool = True
     ENABLE_CATASTROPHE_REPRO_TESTS: bool = True
     ENABLE_RESUME_POLICY_TESTS: bool = True
-    ENABLE_STAGE2_LIFECYCLE_TESTS: bool = True
-    ENABLE_STAGE3_OPERATOR_ARTIFACT_TESTS: bool = True
+    ENABLE_RUNTIME_LIFECYCLE_TESTS: bool = True
+    ENABLE_OPERATOR_ARTIFACT_TESTS: bool = True
     VALIDATION_STRICTNESS: str = "strict"  # permissive | strict
     AUDIT_DEFAULT_TICKS: int = 16
     DETERMINISM_COMPARE_TICKS: int = 8

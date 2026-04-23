@@ -51,7 +51,7 @@ When evidence is limited, use wording such as:
 This boundary chapter should be consulted whenever a later chapter is tempted to:
 
 - broaden a supported-value set beyond what runtime validation accepts
-- describe a planning prompt as a shipped feature
+- describe a planning note as a shipped feature
 - infer public guarantees from a test harness alone
 - import theory into the implementation narrative without a code path
 

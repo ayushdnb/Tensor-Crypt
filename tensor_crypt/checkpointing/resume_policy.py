@@ -1,4 +1,4 @@
-"""Stage-1 checkpoint resume compatibility policy.
+"""Checkpoint resume compatibility policy.
 
 This module deliberately separates launch intent from substrate restore
 validation. Runtime checkpoint validation answers whether a bundle is safe to
@@ -359,7 +359,7 @@ def _exact_resume_deficits(bundle: dict, *, legacy_contract_missing: bool) -> li
 
 
 def build_checkpoint_contract_snapshot(bundle: dict, cfg_obj=cfg) -> dict:
-    """Build compact stage-1 contract metadata for a newly captured bundle."""
+    """Build compact resume contract metadata for a newly captured bundle."""
     config_snapshot = bundle.get("config_snapshot", asdict(cfg_obj))
     substrate = _substrate_summary_from_bundle(bundle)
     observation = _observation_summary_from_config(config_snapshot)
@@ -393,7 +393,7 @@ def build_checkpoint_contract_snapshot(bundle: dict, cfg_obj=cfg) -> dict:
 
 
 def infer_legacy_checkpoint_contract(bundle: dict, cfg_obj=cfg) -> dict:
-    """Infer a conservative contract summary for pre-stage-1 checkpoints."""
+    """Infer a conservative contract summary for checkpoints without contract metadata."""
     config_snapshot = bundle.get("config_snapshot", {})
     substrate = _substrate_summary_from_bundle(bundle)
     observation = _observation_summary_from_config(config_snapshot)
@@ -434,7 +434,7 @@ def get_checkpoint_contract(bundle: dict, cfg_obj=cfg) -> tuple[dict, bool]:
         return resume_contract, False
     policy = normalize_legacy_metadata_policy(getattr(cfg_obj.CHECKPOINT, "LEGACY_METADATA_POLICY", LEGACY_METADATA_POLICY_INFER_CONSERVATIVE))
     if policy == "reject":
-        raise ValueError("Checkpoint lacks stage-1 resume contract metadata and LEGACY_METADATA_POLICY='reject'")
+        raise ValueError("Checkpoint lacks resume contract metadata and LEGACY_METADATA_POLICY='reject'")
     return infer_legacy_checkpoint_contract(bundle, cfg_obj), True
 
 
@@ -472,7 +472,7 @@ def classify_surface_deltas(bundle: dict, cfg_obj=cfg) -> tuple[list[dict], bool
     deltas: list[dict] = []
 
     for surface_name, message in (
-        ("substrate_shape_contract", "Checkpoint substrate shape must match the restore scaffold"),
+        ("substrate_shape_contract", "Checkpoint substrate shape must match the restore runtime"),
         ("observation_contract", "Observation contract is checkpoint-visible and cannot drift on resume"),
         ("family_contract_set", "Family topology and observation contracts are checkpoint-visible"),
     ):
@@ -515,7 +515,7 @@ def classify_surface_deltas(bundle: dict, cfg_obj=cfg) -> tuple[list[dict], bool
         current = current_values.get(path)
         if saved is not None and current is not None and saved != current:
             deltas.append(
-                _delta_entry(path, IGNORED_ON_RESUME, saved, current, "Fresh-run-only surface ignored by resume scaffold")
+                _delta_entry(path, IGNORED_ON_RESUME, saved, current, "Fresh-run-only surface ignored by resume runtime")
             )
 
     saved_snapshot = bundle.get("config_snapshot", {})
@@ -524,7 +524,7 @@ def classify_surface_deltas(bundle: dict, cfg_obj=cfg) -> tuple[list[dict], bool
         section = prefix.rstrip(".")
         if saved_snapshot.get(section) != current_snapshot.get(section):
             deltas.append(
-                _delta_entry(prefix + "*", IGNORED_ON_RESUME, saved_snapshot.get(section), current_snapshot.get(section), "Fresh-run map generation surface ignored by resume scaffold")
+                _delta_entry(prefix + "*", IGNORED_ON_RESUME, saved_snapshot.get(section), current_snapshot.get(section), "Fresh-run map generation surface ignored by resume runtime")
             )
 
     return deltas, legacy_inferred, checkpoint_contract, current_contract

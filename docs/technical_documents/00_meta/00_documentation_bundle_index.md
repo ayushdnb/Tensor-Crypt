@@ -8,7 +8,7 @@ This document does not explain subsystem behavior in depth. Runtime mechanics, l
 
 ## Scope Boundary
 
-This index governs the technical-document bundle only. It does not replace the repository README, test suite, or source tree. When a prose claim conflicts with the implementation, the implementation remains authoritative until the documentation is repaired.
+This index governs the technical-document bundle only. It does not replace the repository README or source tree. When a prose claim conflicts with the implementation, the implementation remains authoritative until the documentation is repaired.
 
 ## Evidence Basis
 
@@ -16,9 +16,8 @@ The bundle is grounded in the current repository tree, with primary reliance on:
 
 - canonical runtime and package surfaces under `tensor_crypt/`
 - compatibility wrappers at repository root and under `engine/` and `viewer/`
-- tests under `tests/`
-- utility scripts under `scripts/`
-- the current `pyproject.toml`, `requirements.txt`, and generated-artifact helpers
+- public packaging metadata in `pyproject.toml` and `requirements.txt`
+- programmatic validation helpers under `tensor_crypt.audit`
 
 ## Bundle Structure
 
@@ -30,11 +29,9 @@ docs/technical_documents/
     00_documentation_bundle_index.md
     01_reading_tracks_and_dependency_map.md
     02_notation_glossary_and_shape_legend.md
-    03_figure_artifact_and_source_reference_index.md
   01_operations_and_config/
     10_operator_runbook_and_game_manual.md
     11_config_reference_active_guarded_dead.md
-    12_experiment_recipes_and_safe_knob_sets.md
   02_system_foundations/
     20_project_identity_runtime_boot_and_package_map.md
     21_python_pytorch_tensors_and_simulation_foundations.md
@@ -57,10 +54,6 @@ docs/technical_documents/
     61_background_math_python_pytorch_and_rl_appendix.md
     62_equations_shapes_and_contract_reference.md
     63_contributor_documentation_truth_contract.md
-  99_assets/
-    diagrams/
-    figure_sources/
-    tables/
 ```
 
 ## Document Families
@@ -72,7 +65,6 @@ These documents define navigation, terminology, reference conventions, and the d
 - [D00](./00_documentation_bundle_index.md): bundle entry point and structure
 - [D01](./01_reading_tracks_and_dependency_map.md): recommended reading paths and dependency order
 - [D02](./02_notation_glossary_and_shape_legend.md): shared vocabulary, status labels, and shape notation
-- [D03](./03_figure_artifact_and_source_reference_index.md): figure, table, artifact, and code-reference conventions
 
 ### 01 Operations and config
 
@@ -80,7 +72,6 @@ These documents explain how to launch, inspect, and configure the system without
 
 - [D10](../01_operations_and_config/10_operator_runbook_and_game_manual.md)
 - [D11](../01_operations_and_config/11_config_reference_active_guarded_dead.md)
-- [D12](../01_operations_and_config/12_experiment_recipes_and_safe_knob_sets.md)
 
 ### 02 System foundations
 
@@ -140,8 +131,7 @@ These labels are defined more fully in [D02](./02_notation_glossary_and_shape_le
 
 ## Publication Notes
 
-- `99_assets/` currently provides reserved locations for diagrams, source tables, and figure inputs. No reviewed figure corpus is currently checked in there, so the directories remain reserved publication locations rather than evidentiary assets.
-- The bundle intentionally prefers direct code and test references over speculative architecture prose.
+- The bundle intentionally prefers direct code references over speculative architecture prose.
 
 ## Recommended Starting Points
 

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
 import time
 from typing import Any
 
@@ -88,13 +89,42 @@ def _json_default(value: Any) -> Any:
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
+def _filesystem_write_path(path: str | Path) -> str:
+    path = Path(path)
+    if os.name == "nt":
+        resolved = str(path.resolve())
+        if not resolved.startswith("\\\\?\\"):
+            return "\\\\?\\" + resolved
+    return str(path)
+
+
+def _replace_file(temp_path: Path, target_path: Path) -> None:
+    for attempt in range(5):
+        try:
+            os.replace(_filesystem_write_path(temp_path), _filesystem_write_path(target_path))
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f"{path.name}.tmp")
-    with temp_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True, default=_json_default)
-        handle.write("\n")
-    os.replace(temp_path, path)
+    fd, temp_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=f".tmp_{path.stem}_",
+        suffix=path.suffix or ".json",
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        with open(_filesystem_write_path(temp_path), "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True, default=_json_default)
+            handle.write("\n")
+        _replace_file(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _read_json(path: Path) -> dict:

@@ -31,12 +31,12 @@ coverage.xml
 .tox/
 .nox/
 .cache/
+.pip_tmp/
 pip-wheel-metadata/
 
 # Editors and IDEs
 .vscode/
 .idea/
-.agent/
 
 # Notebooks
 .ipynb_checkpoints/
@@ -55,10 +55,9 @@ logs/
 audit_tmp/
 audit_runs*/
 manual_debug_logs/
-release_worktrees/
-stage_experimental_selfcentric_single_family/
-stage_verify/
-validation_runs_root_single_family/
+worktrees/
+*_worktrees/
+validation_runs*/
 codes/
 outputs/
 results/
@@ -70,20 +69,13 @@ videos/
 tmp/
 temp/
 docs/reports/
-config_surface_truth_report.md
-public_surface_cleanup_notes.md
 
-# Local task and agent scratch notes
-/Plan.md
-/Implement.md
-/Documentation.md
-/AGENTS.md
-/tensor_crypt_forensic_audit_report.md
-/tensor_crypt_stage3_patch_guide.md
-/prompt_3_viewer_repo_cleanup_docs_push*.md
+# Local scratch material
+/*.local.md
+/*_notes.md
+/*_report.md
+/*_audit*.md
 /*_source_dump*.txt
-/scripts/dump_simulation_sources.py
-/scripts/dump_test_sources.py
 
 # Operating system files
 .DS_Store

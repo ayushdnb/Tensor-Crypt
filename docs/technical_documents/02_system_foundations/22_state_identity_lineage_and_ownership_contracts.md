@@ -17,7 +17,6 @@ This chapter is grounded in:
 - `tensor_crypt.population.respawn_controller`
 - `tensor_crypt.learning.ppo`
 - `tensor_crypt.checkpointing.runtime_checkpoint`
-- tests including `tests/test_identity_substrate.py`, `tests/test_registry_respawn.py`, `tests/test_uid_ppo_hardening.py`, and `tests/test_runtime_checkpoint_substrate.py`
 
 ## Core Distinction
 

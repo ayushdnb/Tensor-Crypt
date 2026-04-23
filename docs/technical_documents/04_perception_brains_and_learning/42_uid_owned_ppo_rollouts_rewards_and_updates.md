@@ -15,7 +15,6 @@ This chapter is grounded in:
 - `tensor_crypt.learning.ppo`
 - `tensor_crypt.simulation.engine`
 - `tensor_crypt.population.evolution`
-- tests including `tests/test_ppo.py`, `tests/test_ppo_singleton_advantages.py`, `tests/test_uid_ppo_hardening.py`, and `tests/test_ppo_reward_surface.py`
 
 ## Ownership Model
 

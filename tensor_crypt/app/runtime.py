@@ -357,7 +357,7 @@ def build_fresh_runtime(run_dir: str, session_plan: SessionPlan | None = None) -
 
 def build_resume_runtime(run_dir: str, bundle: dict, session_plan: SessionPlan | None = None) -> SimulationRuntime:
     """
-    Assemble a side-effect-minimal scaffold and restore a checkpoint into it.
+    Assemble a side-effect-minimal runtime shell and restore a checkpoint into it.
 
     Resume/fork launches must not run procedural map generation, root spawning,
     or root bootstrap telemetry before restore.

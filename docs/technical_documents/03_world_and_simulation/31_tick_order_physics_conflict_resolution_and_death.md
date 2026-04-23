@@ -16,7 +16,6 @@ This chapter is grounded in:
 - `tensor_crypt.world.physics`
 - `tensor_crypt.population.evolution`
 - `tensor_crypt.telemetry.data_logger`
-- tests including `tests/test_physics.py`, `tests/test_engine_and_viewer_integration.py`, and `tests/test_catastrophes.py`
 
 ## Implemented Tick Order
 

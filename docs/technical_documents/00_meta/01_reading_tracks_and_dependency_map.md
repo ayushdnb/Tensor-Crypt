@@ -10,7 +10,7 @@ This document is a navigation aid. It does not restate subsystem behavior in ful
 
 ## Evidence Basis
 
-The dependency map below follows the current repository structure and the implementation relationships visible in the checked-in runtime, tests, and operational surfaces. In particular, the hard prerequisites reflect actual coupling among:
+The dependency map below follows the current repository structure and the implementation relationships visible in the checked-in runtime and operational surfaces. In particular, the hard prerequisites reflect actual coupling among:
 
 - runtime assembly in `tensor_crypt.app.launch` and `tensor_crypt.app.runtime`
 - identity and lineage ownership in `tensor_crypt.agents.state_registry`
@@ -48,7 +48,7 @@ The dependency map below follows the current repository structure and the implem
 
 - [D50](../05_artifacts_validation_and_viewer/50_telemetry_ledgers_hdf5_parquet_and_run_artifacts.md) before [D51](../05_artifacts_validation_and_viewer/51_checkpointing_atomic_publish_resume_and_schema_safety.md) and [D52](../05_artifacts_validation_and_viewer/52_validation_determinism_resume_consistency_and_soak_methods.md)
 - [D51](../05_artifacts_validation_and_viewer/51_checkpointing_atomic_publish_resume_and_schema_safety.md) before [D52](../05_artifacts_validation_and_viewer/52_validation_determinism_resume_consistency_and_soak_methods.md)
-- [D10](../01_operations_and_config/10_operator_runbook_and_game_manual.md) before [D11](../01_operations_and_config/11_config_reference_active_guarded_dead.md), [D12](../01_operations_and_config/12_experiment_recipes_and_safe_knob_sets.md), and [D53](../05_artifacts_validation_and_viewer/53_viewer_controls_inspection_and_diagnostics.md)
+- [D10](../01_operations_and_config/10_operator_runbook_and_game_manual.md) before [D11](../01_operations_and_config/11_config_reference_active_guarded_dead.md) and [D53](../05_artifacts_validation_and_viewer/53_viewer_controls_inspection_and_diagnostics.md)
 
 ## Recommended Reading Tracks
 
@@ -59,8 +59,7 @@ The dependency map below follows the current repository structure and the implem
 3. [D10](../01_operations_and_config/10_operator_runbook_and_game_manual.md)
 4. [D11](../01_operations_and_config/11_config_reference_active_guarded_dead.md)
 5. [D53](../05_artifacts_validation_and_viewer/53_viewer_controls_inspection_and_diagnostics.md)
-6. [D12](../01_operations_and_config/12_experiment_recipes_and_safe_knob_sets.md)
-7. [D50](../05_artifacts_validation_and_viewer/50_telemetry_ledgers_hdf5_parquet_and_run_artifacts.md)
+6. [D50](../05_artifacts_validation_and_viewer/50_telemetry_ledgers_hdf5_parquet_and_run_artifacts.md)
 
 This path is optimized for launching runs, using the viewer, and understanding the artifact surface without first reading the full implementation lineage.
 
@@ -153,9 +152,7 @@ Readers who want the highest-stability single pass can use:
 16. [D51](../05_artifacts_validation_and_viewer/51_checkpointing_atomic_publish_resume_and_schema_safety.md)
 17. [D52](../05_artifacts_validation_and_viewer/52_validation_determinism_resume_consistency_and_soak_methods.md)
 18. [D53](../05_artifacts_validation_and_viewer/53_viewer_controls_inspection_and_diagnostics.md)
-19. [D12](../01_operations_and_config/12_experiment_recipes_and_safe_knob_sets.md)
-20. [D60](../06_boundaries_and_appendices/60_implemented_behavior_vs_adjacent_theory.md)
-21. [D61](../06_boundaries_and_appendices/61_background_math_python_pytorch_and_rl_appendix.md)
-22. [D62](../06_boundaries_and_appendices/62_equations_shapes_and_contract_reference.md)
-23. [D63](../06_boundaries_and_appendices/63_contributor_documentation_truth_contract.md)
-24. [D03](./03_figure_artifact_and_source_reference_index.md)
+19. [D60](../06_boundaries_and_appendices/60_implemented_behavior_vs_adjacent_theory.md)
+20. [D61](../06_boundaries_and_appendices/61_background_math_python_pytorch_and_rl_appendix.md)
+21. [D62](../06_boundaries_and_appendices/62_equations_shapes_and_contract_reference.md)
+22. [D63](../06_boundaries_and_appendices/63_contributor_documentation_truth_contract.md)

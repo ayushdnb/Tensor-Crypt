@@ -233,6 +233,5 @@ For a first interactive run, the most useful immediate checks are:
 ## Where to Continue
 
 - Config status and dormant surfaces: [D11](./11_config_reference_active_guarded_dead.md)
-- Safe knob bundles and experiment cards: [D12](./12_experiment_recipes_and_safe_knob_sets.md)
 - Viewer diagnostics: [D53](../05_artifacts_validation_and_viewer/53_viewer_controls_inspection_and_diagnostics.md)
 - Run artifacts: [D50](../05_artifacts_validation_and_viewer/50_telemetry_ledgers_hdf5_parquet_and_run_artifacts.md)

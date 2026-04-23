@@ -18,9 +18,6 @@ dependencies = [
   "torch",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest"]
-
 [project.scripts]
 tensor-crypt = "tensor_crypt.app.launch:main"
 
@@ -31,8 +28,3 @@ py-modules = ["config", "main", "run"]
 where = ["."]
 include = ["tensor_crypt*", "engine*", "viewer*"]
 namespaces = false
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra -p no:cacheprovider"
-cache_dir = ".pytest_cache_run"
