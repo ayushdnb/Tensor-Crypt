@@ -24,7 +24,7 @@ Operators, maintainers, and technical readers who need actionable procedures and
 
 ## 1. Periodic scheduling
 
-The engine can publish post-tick runtime checkpoints on a configured interval, and records the most recent checkpoint tick and path after successful publication.
+The engine can publish post-tick runtime checkpoints on a configured interval, and records the most recent checkpoint tick and path after successful publication. Before checkpoint capture, it stages active PPO bootstrap observations when bootstrap capture is enabled, so non-terminal rollout tails have explicit checkpoint-visible closure state.
 
 ## 2. File-set publication model
 

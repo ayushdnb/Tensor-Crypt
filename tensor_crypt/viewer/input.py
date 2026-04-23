@@ -141,6 +141,7 @@ class InputHandler:
 
         for ev in events:
             if ev.type == pygame.QUIT:
+                self.viewer.request_shutdown("viewer_quit")
                 running = False
             elif ev.type == pygame.VIDEORESIZE or (window_resized_event is not None and ev.type == window_resized_event):
                 if not self.viewer.is_fullscreen:
@@ -151,6 +152,7 @@ class InputHandler:
                     srect = self.viewer.layout.side_rect()
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
+                    self.viewer.request_shutdown("viewer_escape")
                     running = False
                 elif self._handle_operator_hotkey(ev):
                     pass

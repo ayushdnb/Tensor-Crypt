@@ -61,7 +61,7 @@ def _resume_plan(bundle: dict, checkpoint_path: Path, *, requested_mode: str):
     )
 
 
-def test_tick_wallclock_and_shutdown_checkpoints_record_save_reasons(runtime_builder):
+def test_tick_wallclock_and_shutdown_checkpoints_record_save_reasons(runtime_builder, capsys):
     cfg.CHECKPOINT.SAVE_EVERY_TICKS = 2
     cfg.CHECKPOINT.KEEP_LAST = 5
     runtime = runtime_builder(seed=902, agents=6, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
@@ -89,9 +89,13 @@ def test_tick_wallclock_and_shutdown_checkpoints_record_save_reasons(runtime_bui
     after = sorted((Path(runtime.data_logger.run_dir) / cfg.CHECKPOINT.DIRECTORY_NAME).glob("*.pt"))
     assert after == before
 
-    result = finalize_runtime(runtime, close_reason="test_shutdown")
+    result = finalize_runtime(runtime, close_reason="test_shutdown", print_summary=True)
+    output = capsys.readouterr().out
     second = finalize_runtime(runtime, close_reason="test_shutdown_again")
     assert result.checkpoint_path is not None
+    assert "Runtime shutdown details:" in output
+    assert "reason: test_shutdown" in output
+    assert "checkpoint: OK |" in output
     assert second.already_finalized is True
     assert runtime.data_logger._closed is True
     shutdown_manifest = _manifest_for(Path(result.checkpoint_path))

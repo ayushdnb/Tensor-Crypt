@@ -109,7 +109,7 @@ Startup prints the selected device, the grid size, the configured population siz
 
 The viewer binds a small set of direct controls in `viewer.input.InputHandler`:
 
-- `Esc`: quit
+- `Esc`: request a graceful viewer shutdown and publish the shutdown checkpoint when enabled
 - `Space`: pause / resume
 - `.`: advance one tick while paused
 - `Ctrl+S`: manually publish a runtime checkpoint through the canonical checkpoint path
@@ -203,7 +203,7 @@ logs/
 
 Selected-brain export is an operator action for the currently live selected agent only. The logger writes a weight-bearing `.pt` bundle plus a `.json` metadata sidecar under the session-aware `brains/selected_exports/uid_<uid>/` hierarchy. Metadata includes UID, slot, family, parameter count, topology signature, observation contract, lineage and parent-role fields, export tick, session identifiers, and live PPO state presence/counters.
 
-Runtime checkpoints are controlled by `cfg.CHECKPOINT`. When periodic checkpointing is enabled, the engine publishes bundle files under the run directory's checkpoint folder using the configured filename prefix. `Ctrl+S` and the side-panel Save action call the same canonical engine publication path with save reason `manual_operator` and `force=True`; they do not bypass telemetry flushing, manifests, latest-pointer publication, retention pruning, or session metadata updates. In the current runtime, manifest files and `latest_checkpoint.json` are published only when `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST` are all true. On that path each checkpoint can include:
+Runtime checkpoints are controlled by `cfg.CHECKPOINT`. When periodic checkpointing is enabled, the engine publishes bundle files under the run directory's checkpoint folder using the configured filename prefix. `Ctrl+S` and the side-panel Save action call the same canonical engine publication path with save reason `manual_operator` and `force=True`; they do not bypass telemetry flushing, PPO bootstrap staging, manifests, latest-pointer publication, retention pruning, or session metadata updates. Viewer shutdown through `Esc`, window close, or Ctrl+C runs the lifecycle finalizer, prints shutdown details, and publishes a shutdown checkpoint when `ENABLE_SHUTDOWN_CHECKPOINT` remains enabled. In the current runtime, manifest files and `latest_checkpoint.json` are published only when `ATOMIC_WRITE_ENABLED`, `MANIFEST_ENABLED`, and `SAVE_CHECKPOINT_MANIFEST` are all true. On that path each checkpoint can include:
 
 - a `.pt` bundle
 - a manifest file with checksums and metadata

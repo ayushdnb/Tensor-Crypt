@@ -9,6 +9,7 @@ bootstrap state, counters, and last-update summaries belong to `agent_uid`.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Dict, List
 import math
@@ -602,6 +603,7 @@ class PPO:
         last_dones_dict: dict | None = None,
         *,
         tick: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> list[dict]:
         # Compatibility bridge for older call sites that still pass bootstrap
         # state directly into `update`.
@@ -620,6 +622,9 @@ class PPO:
         agents_to_train = self._ordered_ready_uids(registry)
 
         for uid in agents_to_train:
+            if should_stop is not None and should_stop():
+                break
+
             buffer = self.buffers_by_uid[uid]
             if cfg.PPO.STRICT_BUFFER_VALIDATION:
                 buffer.validate()

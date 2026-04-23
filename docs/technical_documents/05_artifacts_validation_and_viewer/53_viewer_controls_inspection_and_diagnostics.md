@@ -77,6 +77,8 @@ The viewer exposes two deliberate operator actions:
 - `Ctrl+S` and the side-panel Save action publish a manual checkpoint through `Engine.publish_runtime_checkpoint(...)` with save reason `manual_operator`.
 - `Ctrl+E` and the side-panel Export action export only the live selected agent's brain through `DataLogger.export_selected_brain(...)`.
 
+`Esc`, window close, and Ctrl+C request graceful viewer shutdown. The viewer routes the shutdown reason into lifecycle finalization, prints the final tick, alive count, run directory, checkpoint result, and telemetry close result, and uses the shutdown checkpoint path when that checkpoint policy is enabled.
+
 Selected-brain exports land below the logger-managed `brains/selected_exports/uid_<uid>/` hierarchy and include both a `.pt` weight bundle and a `.json` metadata sidecar.
 
 ## Catastrophe Diagnostics

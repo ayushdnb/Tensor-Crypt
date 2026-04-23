@@ -37,6 +37,7 @@ The viewer owns the interactive render loop and UI state. It is not a passive sc
 | `Alt+Enter` | toggle fullscreen |
 | `Space` | pause / unpause |
 | `.` while paused | advance one tick |
+| `Esc` | request graceful viewer shutdown and a shutdown checkpoint when enabled |
 | `Ctrl+S` | publish a manual runtime checkpoint through the canonical engine path |
 | `Ctrl+E` | export the live selected agent's brain weights and metadata |
 | `+` / `-` | speed control when no H-zone is selected |
@@ -110,6 +111,8 @@ When viewer catastrophe controls are enabled:
 ## 9. Operator save and export
 
 Manual save uses the existing runtime checkpoint publication path with save reason `manual_operator`. It preserves telemetry flushing, manifest/latest-pointer policy, retention, and session metadata update behavior.
+
+Viewer shutdown through `Esc`, window close, or Ctrl+C routes through lifecycle finalization. The finalizer flushes telemetry, publishes a shutdown checkpoint when enabled, closes telemetry, updates session metadata, and prints the shutdown reason, final tick, alive count, run directory, checkpoint result, and telemetry close result.
 
 Selected-brain export writes the live selected agent's weights and metadata through the logger-managed `brains/selected_exports/uid_<uid>/` hierarchy. It does not export dead agents or write to the repository root.
 

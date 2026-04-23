@@ -2,6 +2,9 @@ import pandas as pd
 import pygame
 import torch
 
+from tensor_crypt.checkpointing.runtime_checkpoint import load_runtime_checkpoint
+from tensor_crypt.simulation.engine import SAVE_REASON_MANUAL_OPERATOR
+
 
 def test_engine_end_to_end_writes_artifacts_and_keeps_invariants(runtime_builder):
     runtime = runtime_builder(seed=31, width=16, height=16, agents=8, walls=2, hzones=2, update_every=4)
@@ -97,3 +100,32 @@ def test_viewer_resize_event_updates_camera_world_rect(runtime_builder):
     assert advance_tick is False
     assert viewer.cam.screen_width == world_rect.width
     assert viewer.cam.screen_height == world_rect.height
+
+
+def test_escape_requests_graceful_shutdown(runtime_builder):
+    runtime = runtime_builder(seed=44, width=12, height=12, agents=4, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    viewer = runtime.viewer
+
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_ESCAPE, "mod": 0}))
+    running, advance_tick = viewer.input_handler.handle()
+
+    assert running is False
+    assert advance_tick is False
+    assert viewer.shutdown_requested is True
+    assert viewer.shutdown_reason == "viewer_escape"
+    assert runtime.engine.is_graceful_shutdown_requested() is True
+    assert runtime.engine.graceful_shutdown_reason == "viewer_escape"
+
+
+def test_forced_checkpoint_stages_active_ppo_bootstrap(runtime_builder):
+    runtime = runtime_builder(seed=45, width=12, height=12, agents=2, walls=0, hzones=0, update_every=99, batch_size=99, mini_batches=1)
+    runtime.engine.step()
+
+    uid = int(runtime.registry.get_uid_for_slot(int(runtime.registry.get_alive_indices()[0].item())))
+    checkpoint_path = runtime.engine.publish_runtime_checkpoint(SAVE_REASON_MANUAL_OPERATOR, force=True)
+    bundle = load_runtime_checkpoint(checkpoint_path)
+    buffer_payload = bundle["ppo_state"]["buffer_state_by_uid"][uid]
+
+    assert buffer_payload["bootstrap_obs"] is not None
+    assert float(buffer_payload["bootstrap_done"].item()) == 0.0
+    assert buffer_payload["finalization_kind"] == "checkpoint_manual_operator"

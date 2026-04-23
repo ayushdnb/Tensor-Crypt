@@ -145,6 +145,8 @@ class Engine:
         self.last_runtime_checkpoint_path: str | None = None
         self.last_runtime_checkpoint_reason: str | None = None
         self.last_runtime_checkpoint_wallclock_time: float | None = None
+        self._graceful_shutdown_requested = False
+        self._graceful_shutdown_reason: str | None = None
         self._wallclock_autosave_started_at = time.monotonic()
         self._checkpoint_capture_reason: str | None = None
         self._checkpoint_capture_path: str | None = None
@@ -175,6 +177,19 @@ class Engine:
 
         if bootstrap_initial_population and getattr(self.logger, "bootstrap_initial_population", None) is not None:
             self.logger.bootstrap_initial_population(self.registry)
+
+    def request_graceful_shutdown(self, reason: str = "operator_exit") -> None:
+        """Mark the engine so optional post-tick work can yield to final checkpointing."""
+        if not self._graceful_shutdown_requested:
+            self._graceful_shutdown_reason = str(reason)
+        self._graceful_shutdown_requested = True
+
+    def is_graceful_shutdown_requested(self) -> bool:
+        return bool(self._graceful_shutdown_requested)
+
+    @property
+    def graceful_shutdown_reason(self) -> str | None:
+        return self._graceful_shutdown_reason
 
     @staticmethod
     def _alive_slots_from_indices(alive_indices: torch.Tensor) -> list[int]:
@@ -362,7 +377,7 @@ class Engine:
             if float(done_values[i]) >= 0.5:
                 self.ppo.finalize_terminal_uid(uid)
 
-    def _stage_bootstrap_state_for_update(self) -> None:
+    def _stage_bootstrap_state(self, *, finalization_kind: str) -> None:
         final_alive_indices = self.registry.get_alive_indices()
         if len(final_alive_indices) == 0:
             return
@@ -378,8 +393,17 @@ class Engine:
                 uid,
                 {key: value[i] for key, value in final_obs_batch.items()},
                 self._bootstrap_not_done,
-                finalization_kind="active_bootstrap",
+                finalization_kind=finalization_kind,
             )
+
+    def _stage_bootstrap_state_for_update(self) -> None:
+        self._stage_bootstrap_state(finalization_kind="active_bootstrap")
+
+    def _stage_bootstrap_state_for_checkpoint(self, reason: str) -> None:
+        if not cfg.CHECKPOINT.CAPTURE_BOOTSTRAP_STATE:
+            return
+        safe_reason = "".join(ch if ch.isalnum() else "_" for ch in str(reason)).strip("_") or "checkpoint"
+        self._stage_bootstrap_state(finalization_kind=f"checkpoint_{safe_reason}")
 
     def _compute_ppo_rewards(self, alive_indices: torch.Tensor) -> torch.Tensor:
         return compute_ppo_reward_tensor(
@@ -390,9 +414,15 @@ class Engine:
     def _maybe_run_ppo_update(self) -> None:
         if not self.ppo.should_update(self.tick):
             return
+        if self.is_graceful_shutdown_requested():
+            return
 
         self._stage_bootstrap_state_for_update()
-        update_stats_list = self.ppo.update(self.registry, tick=self.tick)
+        update_stats_list = self.ppo.update(
+            self.registry,
+            tick=self.tick,
+            should_stop=self.is_graceful_shutdown_requested,
+        )
         self.logger.log_ppo_update(self.tick, update_stats_list)
 
     def _maybe_save_snapshots(self) -> None:
@@ -453,6 +483,7 @@ class Engine:
 
         checkpoint_path = self._checkpoint_path_for_tick(self.tick, reason=reason)
         self.flush_telemetry_for_checkpoint(reason)
+        self._stage_bootstrap_state_for_checkpoint(reason)
         previous_reason = self._checkpoint_capture_reason
         previous_path = self._checkpoint_capture_path
         self._checkpoint_capture_reason = str(reason)
@@ -625,7 +656,12 @@ class Engine:
         self.tick += 1
         self.registry.tick_counter = self.tick
 
+        if self.is_graceful_shutdown_requested():
+            return
+
         self._maybe_run_ppo_update()
+        if self.is_graceful_shutdown_requested():
+            return
         self._maybe_save_snapshots()
         self._maybe_save_runtime_checkpoint_tick()
         self._maybe_save_runtime_checkpoint_wallclock(paused=False)
