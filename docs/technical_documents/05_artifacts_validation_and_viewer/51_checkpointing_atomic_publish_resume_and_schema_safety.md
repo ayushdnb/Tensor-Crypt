@@ -34,6 +34,8 @@ The current checkpoint capture path records a broad runtime bundle, including:
 - RNG state as enabled
 - metadata including config fingerprint
 
+Before forced, scheduled, or shutdown checkpoint capture, the engine stages active PPO bootstrap observations when `CAPTURE_BOOTSTRAP_STATE` is enabled. This makes the serialized buffer tail explicit at the checkpoint boundary.
+
 This is a state-continuity artifact, not just a model-weight dump.
 
 ## Registry and Identity Capture

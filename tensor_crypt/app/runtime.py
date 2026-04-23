@@ -301,7 +301,13 @@ def _build_substrate_objects(run_dir: str, session_plan: SessionPlan | None = No
 
 
 def _attach_lifecycle_finalizer(runtime: SimulationRuntime) -> SimulationRuntime:
-    runtime.viewer.finalize_callback = lambda runtime=runtime: finalize_runtime(runtime)
+    runtime.viewer.finalize_callback = (
+        lambda close_reason="normal_exit", print_summary=True, runtime=runtime: finalize_runtime(
+            runtime,
+            close_reason=close_reason,
+            print_summary=print_summary,
+        )
+    )
     return runtime
 
 

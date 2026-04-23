@@ -87,7 +87,7 @@ Startup prints the selected device, launch mode, grid size, initial population s
 
 ## Viewer Controls
 
-- `Esc`: quit
+- `Esc`: request a graceful viewer shutdown and publish the shutdown checkpoint when enabled
 - `Space`: pause or resume
 - `.`: advance one tick while paused
 - `Ctrl+S`: publish a runtime checkpoint through the canonical checkpoint path
@@ -160,6 +160,8 @@ logs/
 Manual checkpoint save, scheduled tick checkpoints, wallclock autosave, and shutdown checkpoints use the same engine publication path. When atomic checkpoint publication is enabled, each checkpoint can publish a bundle, a manifest with checksums and lifecycle metadata, and `latest_checkpoint.json`.
 
 Selected-brain export writes only the currently live selected agent. The `.pt` payload carries the brain state dict and metadata; the `.json` sidecar records UID, slot, family, topology signature, observation contract, lineage fields, session identifiers, and live PPO state presence.
+
+Viewer shutdown through `Esc`, window close, or Ctrl+C routes through lifecycle finalization, prints shutdown details, and publishes a shutdown checkpoint when `ENABLE_SHUTDOWN_CHECKPOINT` remains enabled.
 
 Runtime-generated outputs under `logs/`, `artifacts/`, checkpoints, selected-brain exports, caches, and local scratch paths are generated artifacts. They are intentionally ignored by Git.
 

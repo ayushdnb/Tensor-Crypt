@@ -1,6 +1,10 @@
 
 """Pygame viewer runtime for Tensor Crypt."""
 
+import inspect
+import signal
+import threading
+
 import pygame
 import torch
 
@@ -61,11 +65,95 @@ class Viewer:
         self._last_state_data = None
         self.operator_feedback = None
         self.finalize_callback = None
+        self.shutdown_requested = False
+        self.shutdown_reason = "normal_exit"
+        self._finalizing_shutdown = False
+        self._shutdown_notice_printed = False
 
         self.world_renderer = WorldRenderer(self)
         self.hud_panel = HudPanel(self)
         self.side_panel = SidePanel(self)
         self.input_handler = InputHandler(self)
+
+    def request_shutdown(self, reason: str = "operator_exit") -> bool:
+        """Request a safe viewer stop and let the engine skip optional post-tick work."""
+        normalized_reason = str(reason or "operator_exit")
+        first_request = not self.shutdown_requested
+        self.shutdown_requested = True
+        if first_request or self.shutdown_reason == "normal_exit":
+            self.shutdown_reason = normalized_reason
+        request_engine_shutdown = getattr(self.engine, "request_graceful_shutdown", None)
+        if callable(request_engine_shutdown):
+            request_engine_shutdown(normalized_reason)
+        if first_request and normalized_reason in {"viewer_escape", "viewer_quit"}:
+            self._print_shutdown_request(normalized_reason)
+        return first_request
+
+    def _print_shutdown_request(self, reason: str) -> None:
+        if self._shutdown_notice_printed:
+            return
+        self._shutdown_notice_printed = True
+        tick = int(getattr(self.engine, "tick", -1))
+        if reason == "keyboard_interrupt":
+            print(
+                f"\nKeyboard interrupt received at tick {tick}; "
+                "finishing the current safe boundary before shutdown checkpointing."
+            )
+        elif reason == "viewer_escape":
+            print(f"Escape requested viewer shutdown at tick {tick}; publishing shutdown checkpoint.")
+        elif reason == "viewer_quit":
+            print(f"Viewer close requested at tick {tick}; publishing shutdown checkpoint.")
+
+    def _install_sigint_shutdown_handler(self):
+        if threading.current_thread() is not threading.main_thread():
+            return False, None
+        try:
+            previous_handler = signal.getsignal(signal.SIGINT)
+
+            def _handle_sigint(signum, frame):
+                first_request = self.request_shutdown("keyboard_interrupt")
+                if first_request:
+                    self._print_shutdown_request("keyboard_interrupt")
+                elif self._finalizing_shutdown:
+                    print("Shutdown checkpoint is being written; waiting for publication to finish.")
+                else:
+                    print("Shutdown already requested; waiting for the current safe boundary.")
+
+            signal.signal(signal.SIGINT, _handle_sigint)
+            return True, previous_handler
+        except (ValueError, RuntimeError):
+            return False, None
+
+    @staticmethod
+    def _restore_sigint_shutdown_handler(installed: bool, previous_handler) -> None:
+        if not installed:
+            return
+        try:
+            signal.signal(signal.SIGINT, previous_handler)
+        except (ValueError, RuntimeError):
+            pass
+
+    def _invoke_finalize_callback(self) -> None:
+        if not callable(self.finalize_callback):
+            return
+
+        close_reason = self.shutdown_reason if self.shutdown_requested else "normal_exit"
+        try:
+            signature = inspect.signature(self.finalize_callback)
+        except (TypeError, ValueError):
+            self.finalize_callback()
+            return
+
+        accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        kwargs = {}
+        if accepts_kwargs or "close_reason" in signature.parameters:
+            kwargs["close_reason"] = close_reason
+        if accepts_kwargs or "print_summary" in signature.parameters:
+            kwargs["print_summary"] = True
+        self.finalize_callback(**kwargs)
 
     def _refresh_view_geometry(self, *, refit_world: bool) -> None:
         wrect = self.layout.world_rect()
@@ -244,10 +332,15 @@ class Viewer:
     def run(self):
         running = True
         render_every_n_frames = 2
+        sigint_installed, previous_sigint_handler = self._install_sigint_shutdown_handler()
 
         try:
-            while running:
+            while running and not self.shutdown_requested:
                 running, advance_tick = self.input_handler.handle()
+                if not running and not self.shutdown_requested:
+                    self.request_shutdown("viewer_stop")
+                if self.shutdown_requested:
+                    break
 
                 num_ticks_this_frame = 0
                 if not self.paused:
@@ -260,9 +353,13 @@ class Viewer:
 
                 for _ in range(num_ticks_this_frame):
                     if cfg.SIM.MAX_TICKS > 0 and self.engine.tick >= int(cfg.SIM.MAX_TICKS):
+                        self.request_shutdown("max_ticks")
                         running = False
                         break
                     self.engine.step()
+                    if self.shutdown_requested:
+                        running = False
+                        break
                 if num_ticks_this_frame == 0 and hasattr(self.engine, "maybe_save_runtime_checkpoint_wallclock"):
                     self.engine.maybe_save_runtime_checkpoint_wallclock(paused=self.paused)
 
@@ -285,9 +382,14 @@ class Viewer:
                 self.clock.tick(cfg.VIEW.FPS)
                 self.frame_count += 1
 
+        except KeyboardInterrupt:
+            self.request_shutdown("keyboard_interrupt")
+            self._print_shutdown_request("keyboard_interrupt")
         finally:
             try:
-                if callable(self.finalize_callback):
-                    self.finalize_callback()
+                self._finalizing_shutdown = True
+                self._invoke_finalize_callback()
             finally:
+                self._finalizing_shutdown = False
+                self._restore_sigint_shutdown_handler(sigint_installed, previous_sigint_handler)
                 pygame.quit()
